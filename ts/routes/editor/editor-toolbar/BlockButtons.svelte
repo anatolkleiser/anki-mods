@@ -67,7 +67,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             preventDefault(event);
             outdentListItem();
         }, outdentKeyCombination);
+        // inside a list, Tab/Shift+Tab change the indentation; elsewhere they
+        // keep moving between fields
+        registerShortcut(indentWithTab("indent"), "Tab");
+        registerShortcut(indentWithTab("outdent"), "Shift+Tab");
+        registerShortcut((event: KeyboardEvent) => {
+            if (disabled) {
+                return;
+            }
+            preventDefault(event);
+            execCommand("insertUnorderedList");
+        }, "Control+Shift+L");
     });
+
+    function indentWithTab(command: "indent" | "outdent") {
+        return (event: KeyboardEvent): void => {
+            const root = document.activeElement?.shadowRoot;
+            if (disabled || !root || !getListItem(root)) {
+                return;
+            }
+            preventDefault(event);
+            execCommand(command);
+        };
+    }
 
     const { focusedInput } = context.get();
 

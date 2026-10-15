@@ -225,6 +225,17 @@ class Browser(QMainWindow):
             self._renderPreview()
 
     def on_focus_change(self, new: QWidget | None, old: QWidget | None) -> None:
+        # the editor uses Ctrl+Shift+L to make a list, so the window must not
+        # claim it while the editor is focused
+        editor_focused = (
+            new is not None
+            and self.editor is not None
+            and self.editor.web is not None
+            and (new is self.editor.web or self.editor.web.isAncestorOf(new))
+        )
+        self.form.actionCardList.setShortcut(
+            QKeySequence() if editor_focused else self._card_list_shortcut
+        )
         if current_window() == self:
             self.setUpdatesEnabled(True)
             self.table.redraw_cells()
@@ -437,6 +448,7 @@ class Browser(QMainWindow):
         qconnect(f.actionSidebar.triggered, self.focusSidebar)
         qconnect(f.actionToggleSidebar.triggered, self.toggle_sidebar)
         qconnect(f.actionCardList.triggered, self.onCardList)
+        self._card_list_shortcut = f.actionCardList.shortcut()
 
         # help
         qconnect(f.actionGuide.triggered, self.onHelp)
