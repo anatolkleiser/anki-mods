@@ -92,13 +92,6 @@
          </property>
          <layout class="QVBoxLayout" name="updatesLayout">
           <item>
-           <widget class="QCheckBox" name="check_for_updates">
-            <property name="text">
-             <string>preferences_check_for_updates</string>
-            </property>
-           </widget>
-          </item>
-          <item>
            <widget class="QCheckBox" name="check_for_addon_updates">
             <property name="text">
              <string>preferences_check_for_addon_updates</string>
@@ -1282,7 +1275,6 @@
  <tabstops>
   <tabstop>lang</tabstop>
   <tabstop>video_driver</tabstop>
-  <tabstop>check_for_updates</tabstop>
   <tabstop>check_for_addon_updates</tabstop>
   <tabstop>theme</tabstop>
   <tabstop>styleComboBox</tabstop>

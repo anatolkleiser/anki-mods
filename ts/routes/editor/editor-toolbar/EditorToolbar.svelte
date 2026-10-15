@@ -56,6 +56,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import Item from "$lib/components/Item.svelte";
 
     import BlockButtons from "./BlockButtons.svelte";
+    import DeleteButton from "./DeleteButton.svelte";
     import ImageOcclusionButton from "./ImageOcclusionButton.svelte";
     import InlineButtons from "./InlineButtons.svelte";
     import NotetypeButtons from "./NotetypeButtons.svelte";
@@ -66,6 +67,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     export let size: number;
     export let wrap: boolean;
+    export let showDelete = false;
 
     const toolbar = {} as DefaultSlotInterface;
     const notetypeButtons = {} as DefaultSlotInterface;
@@ -98,6 +100,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 <div class="editor-toolbar" bind:clientHeight>
     <ButtonToolbar {size} {wrap}>
         <DynamicallySlottable slotHost={Item} api={toolbar}>
+            {#if showDelete}
+                <Item id="delete">
+                    <DeleteButton />
+                </Item>
+            {/if}
+
             <Item id="notetype">
                 <NotetypeButtons api={notetypeButtons}>
                     <slot name="notetypeButtons" />

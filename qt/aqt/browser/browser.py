@@ -19,7 +19,14 @@ import aqt.forms
 import aqt.operations
 from anki._legacy import deprecated
 from anki.cards import Card, CardId
-from anki.collection import Collection, Config, ExperimentFlag, OpChanges, SearchNode
+from anki.collection import (
+    Collection,
+    Config,
+    ExperimentFlag,
+    OpChanges,
+    OpChangesWithCount,
+    SearchNode,
+)
 from anki.consts import *
 from anki.decks import DeckId
 from anki.errors import NotFoundError, SearchError
@@ -36,7 +43,7 @@ from aqt.errors import show_exception
 from aqt.import_export.exporting import ExportDialog
 from aqt.operations.card import set_card_deck, set_card_flag
 from aqt.operations.collection import redo, undo
-from aqt.operations.note import remove_notes
+from aqt.operations.note import add_note, remove_notes
 from aqt.operations.scheduling import (
     bury_cards,
     forget_cards,
@@ -88,6 +95,11 @@ from .previewer import Previewer
 from .sidebar import SidebarTreeView
 from .table import Table
 
+DELETE_SHORTCUT = "Ctrl+Shift+Backspace"
+# takes over from 'next card' while a single deck is shown
+ADD_SHORTCUT = "Ctrl+N"
+DELETE_ICON = "icons:delete-outline.svg"
+
 
 class MockModel:
     """This class only exists to support some legacy aliases."""
@@ -132,6 +144,8 @@ class Browser(QMainWindow):
         self.col = self.mw.col
         self.lastFilter = ""
         self.focusTo: int | None = None
+        # deck the current search is limited to, if any; new notes go there
+        self.add_deck_id: DeckId | None = None
         self._previewer: Previewer | None = None
         self._card_info = BrowserCardInfo(self.mw)
         self._closeEventHasCleanedUp = False
@@ -285,6 +299,37 @@ class Browser(QMainWindow):
             assert isinstance(add_cards, NewAddCards)
             add_cards.load_new_note(deck_id, self.get_active_note_type_id())
 
+    @no_arg_trigger
+    @ensure_editor_saved
+    def add_empty_note(self) -> None:
+        """Add a note with empty fields to the searched deck and open it in the
+        editor."""
+        deck_id = self.add_deck_id
+        if deck_id is None:
+            return
+        notetype_id = self.get_active_note_type_id() or NotetypeId(
+            self.col.defaults_for_adding(current_review_card=None).notetype_id
+        )
+        notetype = self.col.models.get(notetype_id)
+        assert notetype is not None
+        note = self.col.new_note(notetype)
+
+        def on_success(_: OpChangesWithCount) -> None:
+            # keep the current results, plus the new note, which would usually
+            # not match the search
+            search = self.col.build_search_string(
+                self._lastSearchTxt, SearchNode(nid=note.id), joiner="OR"
+            )
+            self.search_for(search, prompt=self.current_search())
+            # the extended search still belongs to the deck
+            self._set_add_deck(deck_id)
+            self.focusTo = 0
+            self.table.select_single_card(note.card_ids()[0])
+
+        add_note(parent=self, note=note, target_deck_id=deck_id).success(
+            on_success
+        ).run_in_background()
+
     # If in the Browser we open Preview and press Ctrl+W there,
     # both Preview and Browser windows get closed by Qt out of the box.
     # We circumvent that behavior by only closing the currently active window
@@ -355,6 +400,8 @@ class Browser(QMainWindow):
         qconnect(f.actionFindReplace.triggered, self.onFindReplace)
         qconnect(f.actionManage_Note_Types.triggered, self.mw.onNoteTypes)
         qconnect(f.actionDelete.triggered, self.delete_selected_notes)
+        # unlike the menu shortcut, this one doesn't require the table to be focused
+        QShortcut(QKeySequence(DELETE_SHORTCUT), self, self.delete_notes)
 
         # cards
         qconnect(f.actionChange_Deck.triggered, self.set_deck_of_selected_cards)
@@ -379,6 +426,10 @@ class Browser(QMainWindow):
         # jumps
         qconnect(f.actionPreviousCard.triggered, self.onPreviousCard)
         qconnect(f.actionNextCard.triggered, self.onNextCard)
+        self._next_card_shortcut = f.actionNextCard.shortcut()
+        self._add_note_action = QAction(self)
+        qconnect(self._add_note_action.triggered, self.add_empty_note)
+        self.addAction(self._add_note_action)
         qconnect(f.actionFirstCard.triggered, self.onFirstCard)
         qconnect(f.actionLastCard.triggered, self.onLastCard)
         qconnect(f.actionFind.triggered, self.onFind)
@@ -518,10 +569,30 @@ class Browser(QMainWindow):
         """
 
         self._lastSearchTxt = search
+        self._set_add_deck(self._deck_for_search(search))
         prompt = search if prompt is None else prompt
         self.form.searchEdit.setCurrentIndex(-1)
         self._line_edit().setText(prompt)
         self.search()
+
+    def _set_add_deck(self, deck_id: DeckId | None) -> None:
+        self.add_deck_id = deck_id
+        if deck_id is None:
+            self.form.actionNextCard.setShortcut(self._next_card_shortcut)
+            self._add_note_action.setShortcut(QKeySequence())
+        else:
+            self.form.actionNextCard.setShortcut(QKeySequence())
+            self._add_note_action.setShortcut(QKeySequence(ADD_SHORTCUT))
+        self.table.update_add_button()
+
+    def _deck_for_search(self, search: str) -> DeckId | None:
+        """The deck if the search consists only of a single deck term."""
+        if search == self.col.build_search_string(SearchNode(deck="current")):
+            return self.col.decks.get_current_id()
+        for deck in self.col.decks.all_names_and_ids():
+            if search == self.col.build_search_string(SearchNode(deck=deck.name)):
+                return DeckId(deck.id)
+        return None
 
     def current_search(self) -> str:
         return re.sub(r"\s", " ", self._line_edit().text())
@@ -612,6 +683,7 @@ class Browser(QMainWindow):
             editor: aqt.editor.Editor | aqt.editor.NewEditor,
         ) -> None:
             editor._links["preview"] = lambda _editor: self.onTogglePreview()
+            editor._links["delete_note"] = lambda _editor: self.delete_notes()
             gui_hooks.editor_did_init.remove(add_preview_button)
 
         gui_hooks.editor_did_init.append(add_preview_button)
@@ -898,7 +970,12 @@ class Browser(QMainWindow):
         focus = self.focusWidget()
         if focus != self.form.tableView:
             return
+        self.delete_notes()
 
+    @no_arg_trigger
+    @skip_if_selection_is_empty
+    def delete_notes(self) -> None:
+        """Delete the selected notes, regardless of focus."""
         assert self.editor is not None
 
         self.editor.set_note(None)

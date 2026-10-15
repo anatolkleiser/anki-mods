@@ -24,6 +24,7 @@ from aqt.utils import (
     qtMenuShortcutWorkaround,
     restoreHeader,
     saveHeader,
+    shortcut,
     showInfo,
     tr,
 )
@@ -359,6 +360,54 @@ class Table:
         self._update_font()
         self._view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         qconnect(self._view.customContextMenuRequested, self._on_context_menu)
+        self._setup_add_button()
+
+    def _setup_add_button(self) -> None:
+        """Button floating in the empty area below the last row."""
+        assert self._view is not None
+        viewport = self._view.viewport()
+        assert viewport is not None
+        self._add_button = QPushButton(tr.actions_add(), viewport)
+        self._add_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._add_button.setToolTip(
+            shortcut(f"{tr.actions_add()} ({aqt.browser.browser.ADD_SHORTCUT})")
+        )
+        qconnect(self._add_button.clicked, self.browser.add_empty_note)
+        self._add_button_filter = _ResizeFilter(self.update_add_button, viewport)
+        viewport.installEventFilter(self._add_button_filter)
+        for signal in (
+            self._model.modelReset,
+            self._model.layoutChanged,
+            self._model.rowsInserted,
+            self._model.rowsRemoved,
+        ):
+            qconnect(signal, self.update_add_button)
+        scroll_bar = self._view.verticalScrollBar()
+        assert scroll_bar is not None
+        qconnect(scroll_bar.valueChanged, self.update_add_button)
+        self.update_add_button()
+
+    def update_add_button(self, *_args: Any) -> None:
+        assert self._view is not None
+        viewport = self._view.viewport()
+        assert viewport is not None
+        button = self._add_button
+        button.adjustSize()
+        margin = 16
+        rows = self._model.rowCount()
+        if rows:
+            last = self._view.visualRect(self._model.index(rows - 1, 0))
+            top = last.bottom() + 1 + margin
+        else:
+            top = margin
+        # keep the button reachable when the rows fill the viewport
+        top = min(top, viewport.height() - button.height() - margin)
+        left = (viewport.width() - button.width()) // 2
+        button.move(max(left, margin), max(top, 0))
+        # adding only makes sense when a single deck is shown
+        button.setVisible(self.browser.add_deck_id is not None)
+        button.raise_()
 
     def _update_font(self) -> None:
         # we can't choose different line heights efficiently, so we need
@@ -438,6 +487,15 @@ class Table:
 
     def _on_context_menu(self, _point: QPoint) -> None:
         menu = QMenu()
+        delete = menu.addAction(
+            theme_manager.icon_from_resources(aqt.browser.browser.DELETE_ICON),
+            tr.actions_delete(),
+        )
+        assert delete is not None
+        # display only; the shortcut itself is registered on the browser
+        delete.setShortcut(QKeySequence(aqt.browser.browser.DELETE_SHORTCUT))
+        qconnect(delete.triggered, self.browser.delete_notes)
+        menu.addSeparator()
         if self.is_notes_mode():
             main = self.browser.form.menu_Notes
             other = self.browser.form.menu_Cards
@@ -683,3 +741,14 @@ class StatusDelegate(QItemDelegate):
             painter.fillRect(option.rect, brush)
             painter.restore()
         return QItemDelegate.paint(self, painter, option, index)
+
+
+class _ResizeFilter(QObject):
+    def __init__(self, on_resize: Callable[[], None], parent: QObject) -> None:
+        super().__init__(parent)
+        self._on_resize = on_resize
+
+    def eventFilter(self, obj: QObject | None, event: QEvent | None) -> bool:
+        if event is not None and event.type() == QEvent.Type.Resize:
+            self._on_resize()
+        return False

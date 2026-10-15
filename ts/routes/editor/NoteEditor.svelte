@@ -1446,7 +1446,7 @@ components and functionality for general note editing.
         />
     {/if}
 
-    <EditorToolbar {size} {wrap} api={toolbar}>
+    <EditorToolbar {size} {wrap} api={toolbar} showDelete={mode === "browser"}>
         <svelte:fragment slot="notetypeButtons">
             {#if mode === "browser"}
                 <ButtonGroupItem>

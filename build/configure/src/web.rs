@@ -103,6 +103,8 @@ fn setup_node(build: &mut Build) -> Result<()> {
                 // tags
                 "tag-outline.svg",
                 "tag-off-outline.svg",
+                // delete
+                "delete-outline.svg",
             ].iter().map(|file| format!("@mdi/svg/svg/{file}").into()).collect(),
             "mdi_themed" => [
                 // sidebar tools
