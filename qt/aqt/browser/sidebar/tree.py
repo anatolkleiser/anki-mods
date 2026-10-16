@@ -33,6 +33,7 @@ from aqt.fields import FieldDialog
 from aqt.models import Models
 from aqt.operations import CollectionOp, QueryOp
 from aqt.operations.deck import (
+    add_deck_dialog,
     remove_decks,
     rename_deck,
     reparent_decks,
@@ -82,6 +83,9 @@ class SidebarTreeView(QTreeView):
         self.current_search: str | None = None
         self.valid_drop_types: tuple[SidebarItemType, ...] = ()
         self._refresh_needed = False
+        self._add_deck_button_pressed = False
+        # (row hovered, button hovered), like the deck browser's gear icons
+        self._add_deck_button_hover = (False, False)
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self.onContextMenu)  # type: ignore
@@ -91,6 +95,7 @@ class SidebarTreeView(QTreeView):
         self.setAutoExpandDelay(600)
         self.setDragDropOverwriteMode(False)
         self.setEditTriggers(QAbstractItemView.EditTrigger.EditKeyPressed)
+        self.setMouseTracking(True)
 
         qconnect(self.expanded, self._on_expansion)
         qconnect(self.collapsed, self._on_collapse)
@@ -315,7 +320,59 @@ class SidebarTreeView(QTreeView):
                 painter.save()
                 painter.fillRect(options.rect, brush)
                 painter.restore()
-        return super().drawRow(painter, options, idx)
+        super().drawRow(painter, options, idx)
+        row_hovered, button_hovered = self._add_deck_button_hover
+        if row_hovered and self._is_deck_root(idx):
+            assert painter is not None
+            icon = theme_manager.icon_from_resources(
+                ColoredIcon(path="icons:plus.svg", color=colors.FG)
+            )
+            painter.save()
+            painter.setOpacity(1.0 if button_hovered else 0.5)
+            icon.paint(painter, self._add_deck_button_rect(idx))
+            painter.restore()
+
+    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
+        assert event is not None
+
+        pos = self._event_pos(event)
+        self._set_add_deck_button_hover(
+            (self._is_deck_root(self.indexAt(pos)), self._on_add_deck_button(pos))
+        )
+        super().mouseMoveEvent(event)
+
+    def leaveEvent(self, event: QEvent | None) -> None:
+        self._set_add_deck_button_hover((False, False))
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        assert event is not None
+
+        if event.button() == Qt.MouseButton.LeftButton and self._on_add_deck_button(
+            self._event_pos(event)
+        ):
+            self._add_deck_button_pressed = True
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent | None) -> None:
+        assert event is not None
+
+        if self._on_add_deck_button(self._event_pos(event)):
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def viewportEvent(self, event: QEvent | None) -> bool:
+        if event is not None and event.type() == QEvent.Type.ToolTip:
+            help_event = cast(QHelpEvent, event)
+            if self._on_add_deck_button(help_event.pos()):
+                QToolTip.showText(
+                    help_event.globalPos(), tr.decks_create_deck(), self.viewport()
+                )
+                return True
+        return super().viewportEvent(event)
 
     def dropEvent(self, event: QDropEvent | None) -> None:
         assert event is not None
@@ -332,15 +389,19 @@ class SidebarTreeView(QTreeView):
     def mouseReleaseEvent(self, event: QMouseEvent | None) -> None:
         assert event is not None
 
+        if self._add_deck_button_pressed:
+            self._add_deck_button_pressed = False
+            event.accept()
+            if self._on_add_deck_button(self._event_pos(event)):
+                self._on_add_deck()
+            return
+
         super().mouseReleaseEvent(event)
         if (
             self.tool == SidebarTool.SEARCH
             and event.button() == Qt.MouseButton.LeftButton
         ):
-            if qtmajor == 5:
-                pos = event.pos()  # type: ignore
-            else:
-                pos = event.position().toPoint()
+            pos = self._event_pos(event)
             if (index := self.currentIndex()) == self.indexAt(pos):
                 self._on_search(index)
 
@@ -480,6 +541,55 @@ class SidebarTreeView(QTreeView):
 
     def _on_add(self, item: SidebarItem):
         self.browser.add_card(DeckId(item.id))
+
+    def _on_add_deck(self) -> None:
+        # same prefill as the deck browser's Create Deck button
+        if op := add_deck_dialog(
+            parent=self.browser, default_text=self.col.decks.current()["name"]
+        ):
+            op.run_in_background()
+
+    # Add deck button on the deck section header
+    ###########################
+
+    @staticmethod
+    def _event_pos(event: QMouseEvent) -> QPoint:
+        if qtmajor == 5:
+            return event.pos()  # type: ignore
+        return event.position().toPoint()
+
+    def _is_deck_root(self, idx: QModelIndex) -> bool:
+        item = self.model().item_for_index(idx) if idx.isValid() else None
+        return bool(item and item.item_type == SidebarItemType.DECK_ROOT)
+
+    def _add_deck_button_rect(self, idx: QModelIndex) -> QRect:
+        row = self.visualRect(idx)
+        size = min(16, row.height())
+        viewport = self.viewport()
+        assert viewport is not None
+        if self.layoutDirection() == Qt.LayoutDirection.RightToLeft:
+            left = 4
+        else:
+            left = viewport.width() - 4 - size
+        return QRect(left, row.center().y() - size // 2 + 1, size, size)
+
+    def _on_add_deck_button(self, pos: QPoint) -> bool:
+        idx = self.indexAt(pos)
+        return self._is_deck_root(idx) and self._add_deck_button_rect(idx).adjusted(
+            -3, -3, 3, 3
+        ).contains(pos)
+
+    def _set_add_deck_button_hover(self, hover: tuple[bool, bool]) -> None:
+        if hover == self._add_deck_button_hover:
+            return
+        self._add_deck_button_hover = hover
+        viewport = self.viewport()
+        assert viewport is not None
+        if hover[1]:
+            viewport.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            viewport.unsetCursor()
+        viewport.update()
 
     def _on_delete(self, item: SidebarItem) -> None:
         if item.item_type == SidebarItemType.SAVED_SEARCH:
@@ -934,6 +1044,8 @@ class SidebarTreeView(QTreeView):
             menu.addAction(
                 tr.browsing_sidebar_save_current_search(), self.save_current_search
             )
+        elif item.item_type == SidebarItemType.DECK_ROOT:
+            menu.addAction(tr.decks_create_deck(), self._on_add_deck)
         elif item.item_type == SidebarItemType.SAVED_SEARCH:
             menu.addAction(
                 tr.browsing_update_saved_search(),
