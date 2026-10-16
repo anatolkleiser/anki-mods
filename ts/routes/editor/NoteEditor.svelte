@@ -148,7 +148,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     const fieldStores: Writable<string>[] = [];
     let fieldNames: string[] = [];
-    export function setFields(newFieldNames: string[], fieldValues: string[]): void {
+    export function setFields(
+        newFieldNames: string[],
+        fieldValues: string[],
+        keepUndoHistory = false,
+    ): void {
         fieldNames = newFieldNames;
 
         for (let i = fieldStores.length; i < fieldValues.length; i++) {
@@ -170,18 +174,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             undoStacks.pop();
         }
 
+        undoLocked = true;
         for (const [index, value] of fieldValues.entries()) {
             fieldStores[index].set(value);
-            undoStacks[index].reset(get(fieldStores[index]));
+            if (!keepUndoHistory) {
+                undoStacks[index].reset(get(fieldStores[index]));
+            }
         }
+        undoLocked = false;
         updateUndoState();
     }
 
     const undoStacks: UndoStack[] = [];
     /** The focused field; only its changes create undo steps */
     let undoFieldIndex: number | null = null;
-    /** The field whose content is being restored by undo/redo */
-    let restoringFieldIndex: number | null = null;
+    /** Set while field content changes that are not user edits, e.g. undo itself */
+    let undoLocked = false;
     /** used to make the toolbar buttons reactive */
     const undoState = writable<UndoState>({ undoable: false, redoable: false });
 
@@ -195,14 +203,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     function recordFieldChange(index: number, value: string): void {
         const stack = undoStacks[index];
-        if (!stack || index === restoringFieldIndex) {
+        if (!stack) {
             return;
         }
-        if (index === undoFieldIndex) {
+        if (index === undoFieldIndex && !undoLocked) {
             stack.record(value);
         } else {
-            // e.g. normalization when an input mounts, or changes made outside
-            // of the editor
+            // e.g. normalization when an input mounts, or the note being
+            // reloaded
             stack.replaceCurrent(value);
         }
         updateUndoState();
@@ -228,16 +236,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             return;
         }
 
-        restoringFieldIndex = index;
+        undoLocked = true;
         try {
             // updates the inputs of the field that are not focused; the
             // focused one does not sync with the store while focused
             fieldStores[index].set(html);
             await input.replaceContent(html);
-            // the input may have normalized the content
-            stack.replaceCurrent(get(fieldStores[index]));
         } finally {
-            restoringFieldIndex = null;
+            undoLocked = false;
             updateUndoState();
         }
     }
@@ -1164,6 +1170,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         const clozeFields = fieldNames.map((name, index) =>
             clozeFieldOrds.includes(index),
         );
+        const previousNote = note;
         if (mode === "add") {
             setNote(await newNote({ ntid: notetype.id }));
         } else {
@@ -1249,8 +1256,14 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         const lastHighlightColor =
             (await getProfileConfig("lastHighlightColor")) ?? "#0000ff";
 
+        // e.g. the browser reloads the note after the editor saved it
+        const isReload =
+            mode !== "add" &&
+            previousNote?.id === note!.id &&
+            previousNote.notetypeId === note!.notetypeId;
+
         saveSession();
-        setFields(fieldNames, fieldValues);
+        setFields(fieldNames, fieldValues, isReload);
         setIsImageOcclusion(
             notetype.config?.originalStockKind ===
                 StockNotetype_OriginalStockKind.IMAGE_OCCLUSION,

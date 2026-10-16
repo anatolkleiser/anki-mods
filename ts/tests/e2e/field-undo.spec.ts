@@ -7,10 +7,18 @@
  * Typing in a field creates undo steps; changes in quick succession are merged
  * into one step. Undo/redo are available via the keyboard shortcuts and the
  * toolbar buttons, and only ever affect the focused field.
+ *
+ * Outside of the Add window, saving a field makes Qt report the change back to
+ * the editor (webview.py on_operation_did_execute), which reloads the note.
+ * That reload must keep the history; loading a different note must clear it.
  */
 
+import type { Page } from "@playwright/test";
+
+import { AddNoteResponse } from "@generated/anki/notes_pb";
+
 import { expect, test } from "./fixtures";
-import { editableField } from "./helpers";
+import { editableField, isRpcResponse } from "./helpers";
 
 // longer than MERGE_INTERVAL_MS, so that the next change starts a new step
 const STEP_PAUSE_MS = 1_200;
@@ -86,4 +94,81 @@ test("undo only affects the focused field", async ({ editor: page }) => {
     await first.click();
     await page.keyboard.press("ControlOrMeta+z");
     await expect(first).toHaveText("");
+});
+
+interface AddedNote {
+    noteId: string;
+    notetypeId: string;
+}
+
+async function addNote(page: Page, text: string): Promise<AddedNote> {
+    await editableField(page, 0).click();
+    await page.keyboard.type(text);
+    // Response.body() of the page's own fetch can come back empty, so read
+    // the response while proxying it instead
+    let resolveNoteId: (id: bigint) => void;
+    const noteIdPromise = new Promise<bigint>((resolve) => (resolveNoteId = resolve));
+    await page.route("**/_anki/addNote", async (route) => {
+        const response = await route.fetch();
+        const body = await response.body();
+        resolveNoteId(AddNoteResponse.fromBinary(body).noteId);
+        await route.fulfill({ response, body });
+    }, { times: 1 });
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    const noteId = await noteIdPromise;
+    const notetypeId = await page.evaluate(() => (window as any).getNoteInfo().mid);
+    return { noteId: noteId.toString(), notetypeId };
+}
+
+async function openInBrowserEditor(page: Page, note: AddedNote): Promise<void> {
+    await page.goto("/editor/?mode=browser", { waitUntil: "domcontentloaded" });
+    // Python waits for this before loading a note (editor.py on_editor_ready)
+    await page.waitForFunction(() => (window as any).__bridgeCalls.includes("editorReady"));
+    await loadNote(page, note);
+}
+
+/** Like Python's Editor.load_note() */
+async function loadNote(page: Page, { noteId, notetypeId }: AddedNote): Promise<void> {
+    const loaded = page.waitForResponse(isRpcResponse("getNote"));
+    await page.evaluate(
+        (args) => (window as any).loadNote({ ...args, initial: true }),
+        { nid: noteId, notetypeId },
+    );
+    await loaded;
+    await expect(editableField(page, 0)).toBeVisible();
+}
+
+test("the history survives the browser reloading the note after saving it", async ({ editor: page }) => {
+    const note = await addNote(page, "original");
+    await openInBrowserEditor(page, note);
+    const field = editableField(page, 0);
+    await field.click();
+    await page.keyboard.press("End");
+
+    const saved = page.waitForResponse(isRpcResponse("updateNotes"));
+    await page.keyboard.type(" edited");
+    await saved;
+    const reloaded = page.waitForResponse(isRpcResponse("getNote"));
+    await page.evaluate(() => (globalThis as any).anki.onOperationDidExecute({ noteText: true }));
+    await reloaded;
+
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(field).toHaveText("original");
+});
+
+test("loading a different note clears the history", async ({ editor: page }) => {
+    const first = await addNote(page, "first");
+    const second = await addNote(page, "second");
+    await openInBrowserEditor(page, first);
+    const field = editableField(page, 0);
+    await field.click();
+    await page.keyboard.press("End");
+    await page.keyboard.type(" edited");
+
+    await loadNote(page, second);
+    await field.click();
+
+    await expect(page.getByTitle(/^Undo/)).toBeDisabled();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(field).toHaveText("second");
 });
