@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import functools
 import re
 from collections.abc import Callable
 from copy import deepcopy
@@ -12,6 +11,7 @@ import anki.lang
 import aqt
 import aqt.forms
 import aqt.operations
+import aqt.shortcuts
 from anki.collection import OpChanges
 from anki.utils import is_mac
 from aqt import AnkiQt
@@ -29,6 +29,7 @@ from aqt.utils import (
     disable_help_button,
     is_win,
     openHelp,
+    shortcut,
     showInfo,
     showWarning,
     tr,
@@ -69,7 +70,6 @@ class Preferences(QDialog):
         self.setup_collection()
         self.setup_profile()
         self.setup_global()
-        self.setup_configurable_answer_keys()
         self.show()
 
     def _setup_webview(self) -> None:
@@ -78,32 +78,6 @@ class Preferences(QDialog):
         assert layout is not None
         layout.addWidget(self.web)
         self.web.load_sveltekit_page("preferences")
-
-    def setup_configurable_answer_keys(self):
-        """
-        Create a group box in Preferences with widgets that let the user edit answer keys.
-        """
-        ease_labels = (
-            (1, tr.studying_again()),
-            (2, tr.studying_hard()),
-            (3, tr.studying_good()),
-            (4, tr.studying_easy()),
-        )
-        group = self.form.preferences_answer_keys
-        group.setLayout(layout := QFormLayout())
-        tab_widget: QWidget = self.form.url_schemes
-        for ease, label in ease_labels:
-            layout.addRow(
-                label,
-                line_edit := QLineEdit(self.mw.pm.get_answer_key(ease) or ""),
-            )
-            QWidget.setTabOrder(tab_widget, line_edit)
-            tab_widget = line_edit
-            qconnect(
-                line_edit.textChanged,
-                functools.partial(self.mw.pm.set_answer_key, ease),
-            )
-            line_edit.setPlaceholderText(tr.preferences_shortcut_placeholder())
 
     def accept(self) -> None:
         self.accept_with_callback()
@@ -393,6 +367,7 @@ class Preferences(QDialog):
 
         self.setup_language()
         self.setup_video_driver()
+        self.setup_shortcuts()
 
         self.setupOptions()
 
@@ -411,6 +386,9 @@ class Preferences(QDialog):
 
         if restart_required:
             showInfo(tr.preferences_changes_will_take_effect_when_you())
+
+        if self.update_shortcuts():
+            self.mw.refresh_shortcuts()
 
         self.updateOptions()
 
@@ -477,6 +455,179 @@ class Preferences(QDialog):
             self.mw.pm.set_video_driver(new_driver)
             return True
         return False
+
+    # Global: shortcuts
+    ######################################################################
+
+    def setup_shortcuts(self) -> None:
+        # id -> new key sequence; "" disables, None restores the default
+        self.shortcut_changes: dict[str, str | None] = {}
+        self.shortcut_editor: QKeySequenceEdit | None = None
+        self.shortcut_items: dict[str, QTreeWidgetItem] = {}
+
+        f = self.form
+        tree = f.shortcuts_tree
+        header = tree.header()
+        assert header is not None
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for column in (1, 2):
+            header.resizeSection(column, 170)
+
+        bold = tree.font()
+        bold.setBold(True)
+        groups: dict[aqt.shortcuts.ShortcutContext, QTreeWidgetItem] = {}
+        for context in aqt.shortcuts.ShortcutContext:
+            group = groups[context] = QTreeWidgetItem([context.label()])
+            group.setFont(0, bold)
+            group.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            tree.addTopLevelItem(group)
+            group.setExpanded(True)
+        for sc in aqt.shortcuts.all_shortcuts():
+            item = QTreeWidgetItem(
+                [sc.label(), "", ", ".join(shortcut(k) for k in sc.defaults)]
+            )
+            item.setData(0, Qt.ItemDataRole.UserRole, sc.id)
+            groups[sc.context].addChild(item)
+            self.shortcut_items[sc.id] = item
+        self.update_shortcut_items()
+
+        qconnect(f.shortcuts_search.textChanged, self.filter_shortcuts)
+        qconnect(tree.itemActivated, self.on_shortcut_activated)
+        qconnect(tree.currentItemChanged, self.on_current_shortcut_changed)
+        qconnect(tree.customContextMenuRequested, self.on_shortcut_context_menu)
+        qconnect(f.shortcuts_reset.clicked, lambda: self.change_current_shortcut(None))
+        qconnect(f.shortcuts_disable.clicked, lambda: self.change_current_shortcut(""))
+        qconnect(f.shortcuts_reset_all.clicked, self.on_reset_all_shortcuts)
+        self.on_current_shortcut_changed()
+
+    def update_shortcuts(self) -> bool:
+        "Store changed shortcuts. Returns True if there were any."
+        self.finish_shortcut_editing()
+        for id, value in self.shortcut_changes.items():
+            aqt.shortcuts.set_keys(id, value)
+        return bool(self.shortcut_changes)
+
+    def current_shortcut_keys(self, id: str) -> list[str]:
+        if id not in self.shortcut_changes:
+            return aqt.shortcuts.keys(id)
+        value = self.shortcut_changes[id]
+        if value is None:
+            return list(aqt.shortcuts.get(id).defaults)
+        return [value] if value else []
+
+    def update_shortcut_items(self) -> None:
+        for id, item in self.shortcut_items.items():
+            keys = self.current_shortcut_keys(id)
+            item.setText(
+                1,
+                ", ".join(shortcut(k) for k in keys)
+                if keys
+                else tr.preferences_shortcuts_disabled(),
+            )
+            font = item.font(1)
+            font.setBold(keys != list(aqt.shortcuts.get(id).defaults))
+            font.setItalic(not keys)
+            item.setFont(1, font)
+        self.filter_shortcuts()
+
+    def filter_shortcuts(self) -> None:
+        text = self.form.shortcuts_search.text().strip().lower()
+        tree = self.form.shortcuts_tree
+        for i in range(tree.topLevelItemCount()):
+            group = tree.topLevelItem(i)
+            assert group is not None
+            group_matches = text in group.text(0).lower()
+            any_visible = False
+            for j in range(group.childCount()):
+                item = group.child(j)
+                assert item is not None
+                visible = (
+                    group_matches
+                    or text in item.text(0).lower()
+                    or text in item.text(1).lower()
+                )
+                item.setHidden(not visible)
+                any_visible |= visible
+            group.setHidden(not any_visible)
+
+    def selected_shortcut(self) -> str | None:
+        item = self.form.shortcuts_tree.currentItem()
+        return item.data(0, Qt.ItemDataRole.UserRole) if item else None
+
+    def change_current_shortcut(self, value: str | None) -> None:
+        if id := self.selected_shortcut():
+            self.change_shortcut(id, value)
+
+    def change_shortcut(self, id: str, value: str | None) -> None:
+        if value is not None and [value] == list(aqt.shortcuts.get(id).defaults):
+            value = None
+        if value is None and aqt.shortcuts.is_default(id):
+            self.shortcut_changes.pop(id, None)
+        else:
+            self.shortcut_changes[id] = value
+        self.update_shortcut_items()
+
+    def on_reset_all_shortcuts(self) -> None:
+        if askUser(tr.preferences_shortcuts_reset_all_confirm(), parent=self):
+            for id in self.shortcut_items:
+                self.change_shortcut(id, None)
+
+    def on_current_shortcut_changed(self, *_args: object) -> None:
+        self.finish_shortcut_editing(save=False)
+        selected = self.selected_shortcut() is not None
+        self.form.shortcuts_reset.setEnabled(selected)
+        self.form.shortcuts_disable.setEnabled(selected)
+
+    def on_shortcut_activated(self, item: QTreeWidgetItem, _column: int) -> None:
+        if not item.data(0, Qt.ItemDataRole.UserRole):
+            return
+        self.finish_shortcut_editing(save=False)
+        self.shortcut_editor = editor = QKeySequenceEdit()
+        qconnect(editor.editingFinished, self.finish_shortcut_editing)
+        self.form.shortcuts_tree.setItemWidget(item, 1, editor)
+        editor.setFocus()
+
+    def finish_shortcut_editing(self, save: bool = True) -> None:
+        if not (editor := self.shortcut_editor):
+            return
+        self.shortcut_editor = None
+        tree = self.form.shortcuts_tree
+        item = next(
+            item
+            for item in self.shortcut_items.values()
+            if tree.itemWidget(item, 1) is editor
+        )
+        sequence = editor.keySequence()
+        tree.removeItemWidget(item, 1)
+        tree.setFocus()
+        if save and not sequence.isEmpty():
+            self.change_shortcut(
+                item.data(0, Qt.ItemDataRole.UserRole),
+                sequence.toString(QKeySequence.SequenceFormat.PortableText),
+            )
+
+    def on_shortcut_context_menu(self, pos: QPoint) -> None:
+        tree = self.form.shortcuts_tree
+        item = tree.itemAt(pos)
+        if item is None or not (id := item.data(0, Qt.ItemDataRole.UserRole)):
+            return
+        keys = self.current_shortcut_keys(id)
+        menu = QMenu(self)
+        change = menu.addAction(tr.preferences_shortcuts_shortcut())
+        assert change is not None
+        qconnect(change.triggered, lambda: self.on_shortcut_activated(item, 1))
+        reset = menu.addAction(tr.preferences_shortcuts_reset())
+        assert reset is not None
+        reset.setEnabled(keys != list(aqt.shortcuts.get(id).defaults))
+        qconnect(reset.triggered, lambda: self.change_shortcut(id, None))
+        disable = menu.addAction(tr.preferences_shortcuts_disable())
+        assert disable is not None
+        disable.setEnabled(bool(keys))
+        qconnect(disable.triggered, lambda: self.change_shortcut(id, ""))
+        viewport = tree.viewport()
+        assert viewport is not None
+        menu.exec(viewport.mapToGlobal(pos))
 
 
 def video_driver_name_for_platform(driver: VideoDriver) -> str:

@@ -9,6 +9,7 @@ from typing import Any
 
 import aqt
 import aqt.operations
+import aqt.shortcuts
 from anki.collection import OpChanges
 from anki.scheduler import UnburyDeck
 from aqt import gui_hooks
@@ -124,13 +125,18 @@ class Overview:
         return False
 
     def _shortcutKeys(self) -> list[tuple[str, Callable]]:
-        return [
-            ("o", lambda: display_options_for_deck(self.mw.col.decks.current())),
-            ("r", self.rebuild_current_filtered_deck),
-            ("e", self.empty_current_filtered_deck),
-            ("c", self.onCustomStudyKey),
-            ("u", self.on_unbury),
-        ]
+        return aqt.shortcuts.bind_all(
+            [
+                (
+                    "overview.options",
+                    lambda: display_options_for_deck(self.mw.col.decks.current()),
+                ),
+                ("overview.rebuild", self.rebuild_current_filtered_deck),
+                ("overview.empty", self.empty_current_filtered_deck),
+                ("overview.custom_study", self.onCustomStudyKey),
+                ("overview.unbury", self.on_unbury),
+            ]
+        )
 
     def _current_deck_is_filtered(self) -> int:
         return self.mw.col.decks.current()["dyn"]
@@ -282,17 +288,37 @@ class Overview:
 
     def _renderBottom(self) -> None:
         links = [
-            ["O", "opts", tr.actions_options()],
+            [aqt.shortcuts.display("overview.options"), "opts", tr.actions_options()],
         ]
         is_dyn = self.mw.col.decks.current()["dyn"]
         if is_dyn:
-            links.append(["R", "refresh", tr.actions_rebuild()])
-            links.append(["E", "empty", tr.studying_empty()])
+            links.append(
+                [
+                    aqt.shortcuts.display("overview.rebuild"),
+                    "refresh",
+                    tr.actions_rebuild(),
+                ]
+            )
+            links.append(
+                [aqt.shortcuts.display("overview.empty"), "empty", tr.studying_empty()]
+            )
         else:
-            links.append(["C", "studymore", tr.actions_custom_study()])
+            links.append(
+                [
+                    aqt.shortcuts.display("overview.custom_study"),
+                    "studymore",
+                    tr.actions_custom_study(),
+                ]
+            )
             # links.append(["F", "cram", _("Filter/Cram")])
         if self.mw.col.sched.have_buried():
-            links.append(["U", "unbury", tr.studying_unbury()])
+            links.append(
+                [
+                    aqt.shortcuts.display("overview.unbury"),
+                    "unbury",
+                    tr.studying_unbury(),
+                ]
+            )
         if not is_dyn:
             links.append(["", "description", tr.scheduling_description()])
         link_handler = gui_hooks.overview_will_render_bottom(

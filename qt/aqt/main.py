@@ -22,6 +22,7 @@ import anki.sound
 import aqt
 import aqt.forms
 import aqt.progress
+import aqt.shortcuts
 import aqt.sound
 from anki import hooks
 from anki._backend import RustBackend as _RustBackend
@@ -1174,18 +1175,39 @@ title="{}" {}>{}</button>""".format(
     ##########################################################################
 
     def setupKeys(self) -> None:
-        globalShortcuts = [
-            ("Ctrl+:", show_debug_console),
-            ("d", lambda: self.moveToState("deckBrowser")),
-            ("s", self.onStudyKey),
-            ("a", self.onAddCard),
-            ("b", self.onBrowse),
-            ("t", self.onStats),
-            ("Shift+t", self.onStats),
-            ("y", self.on_sync_button_clicked),
-        ]
-        self.applyShortcuts(globalShortcuts)
+        self.globalShortcuts: list[QShortcut] = []
         self.stateShortcuts: list[QShortcut] = []
+        self._apply_global_shortcuts()
+
+    def _apply_global_shortcuts(self) -> None:
+        for qs in self.globalShortcuts:
+            sip.delete(qs)  # type: ignore
+        self.globalShortcuts = self.applyShortcuts(
+            aqt.shortcuts.bind_all(
+                [
+                    ("main.debug_console", show_debug_console),
+                    ("main.decks", lambda: self.moveToState("deckBrowser")),
+                    ("main.study", self.onStudyKey),
+                    ("main.add", self.onAddCard),
+                    ("main.browse", self.onBrowse),
+                    ("main.stats", self.onStats),
+                    ("main.sync", self.on_sync_button_clicked),
+                ]
+            )
+        )
+
+    def refresh_shortcuts(self) -> None:
+        "Apply changed shortcut settings to the main window."
+        self._apply_global_shortcuts()
+        aqt.shortcuts.apply_to_form(self.form, aqt.shortcuts.ShortcutContext.MAIN_MENU)
+        aqt.shortcuts.apply_to_action(self.form.actionFullScreen, "main.full_screen")
+        if self.state == "overview":
+            self.clearStateShortcuts()
+            self.setStateShortcuts(self.overview._shortcutKeys())
+        elif self.state == "review":
+            self.clearStateShortcuts()
+            self.setStateShortcuts(self.reviewer._shortcutKeys())  # type: ignore
+        self.toolbar.redraw()
 
     def _close_active_window(self) -> None:
         window = (
@@ -1219,6 +1241,8 @@ title="{}" {}>{}</button>""".format(
     ) -> list[QShortcut]:
         qshortcuts = []
         for key, fn in self._normalize_shortcuts(shortcuts):
+            if key.isEmpty():
+                continue
             scut = QShortcut(key, self, activated=fn)  # type: ignore
             scut.setAutoRepeat(False)
             qshortcuts.append(scut)
@@ -1450,9 +1474,8 @@ title="{}" {}>{}</button>""".format(
         qconnect(m.actionResetZoom.triggered, lambda: self.web.setZoomFactor(1))
         # app-wide shortcut
         qconnect(m.actionFullScreen.triggered, self.on_toggle_full_screen)
-        m.actionFullScreen.setShortcut(
-            QKeySequence("F11") if is_lin else QKeySequence.StandardKey.FullScreen
-        )
+        aqt.shortcuts.apply_to_action(m.actionFullScreen, "main.full_screen")
+        aqt.shortcuts.apply_to_form(m, aqt.shortcuts.ShortcutContext.MAIN_MENU)
         m.actionFullScreen.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
 
     def updateTitleBar(self) -> None:

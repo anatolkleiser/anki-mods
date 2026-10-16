@@ -1,0 +1,153 @@
+---
+title: "Keyboard Shortcuts"
+---
+
+## How settings are stored
+
+Anki keeps settings in three places:
+
+| Where                                          | Scope                       | API                                                                                                      | Examples                                              |
+| ---------------------------------------------- | --------------------------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Collection config (`collection.anki2`, synced) | per collection, all devices | `col.get_preferences()` / `set_preferences()` (proto `Preferences`), `col.get_config()` / `set_config()` | scheduling, review display, editing, backups          |
+| Profile (`prefs21.db`, row = profile name)     | per profile, this device    | `mw.pm.profile[...]`                                                                                     | sync login, network, AnkiHub                          |
+| Shared meta (`prefs21.db`, row `_global`)      | all profiles, this device   | `mw.pm.meta[...]`                                                                                        | language, theme, UI scale, answer keys, **shortcuts** |
+
+`ProfileManager.save()` pickles `profile` and `meta` back to `prefs21.db`. The
+preferences dialog (`qt/aqt/preferences.py`) reads each group in
+`setup_collection` / `setup_profile` / `setup_global` and writes them back
+when it closes.
+
+## Configurable shortcuts
+
+`qt/aqt/shortcuts.py` lists every configurable shortcut with an id, a context,
+a label and its default keys. Changes are stored with the other shared
+settings via `mw.pm.shortcuts()` / `mw.pm.set_shortcut()` (meta key
+`"shortcuts"`, as `{id: "Ctrl+Shift+B"}`). An empty string disables the
+shortcut, and an id with no entry uses its defaults. Answer keys keep using
+`pm.get_answer_key()`, so existing settings carry over.
+
+You edit shortcuts in **Preferences → Shortcuts**. The tab has search, reset
+per shortcut, reset all, and disable.
+
+- **Qt code:** call sites use `aqt.shortcuts.keys(id)`, `bind_all()`,
+  `apply_to_action()` or `apply_to_form()`.
+- **Editor (TypeScript):** editor web views get a
+  `globalThis.shortcutOverrides` script before the page loads. It maps each
+  default key combination to its replacement. `registerShortcut()` and
+  `getPlatformString()` in `ts/lib/tslib/shortcuts.ts` apply that map.
+- **Add-ons:** the existing hooks (`state_shortcuts_will_change`,
+  `editor_did_init_shortcuts`, …) are unchanged and receive the user's keys.
+
+## Shortcut map
+
+On macOS, Ctrl means ⌘. ✓ means you can change the shortcut in Preferences → Shortcuts.
+
+### Main window (every screen) ✓
+
+D decks · S study · A add · B browse · T / Shift+T stats · Y sync ·
+Ctrl+: debug console · F11 (Ctrl+Meta+F on macOS) full screen.
+On macOS only, Ctrl+M minimizes the window (fixed).
+
+### Main window menus ✓ (`forms/main.ui`)
+
+| Key          | Action         | Key          | Action                                |
+| ------------ | -------------- | ------------ | ------------------------------------- |
+| Ctrl+Q       | Exit           | Ctrl+Shift+I | Import                                |
+| Ctrl+P       | Preferences    | Ctrl+E       | Export                                |
+| Ctrl+Z       | Undo           | /            | Study deck                            |
+| Ctrl+Shift+Z | Redo           | F            | Create filtered deck                  |
+| F1           | Guide          | Ctrl+Shift+N | Note types                            |
+| Ctrl+Shift+P | Switch profile | Ctrl+Shift+A | Add-ons                               |
+| Ctrl+0       | Reset zoom     | —            | Zoom in/out, empty cards (no default) |
+
+### Deck overview ✓
+
+O options · R rebuild · E empty · C custom study · U unbury
+
+### Review ✓
+
+| Key                    | Action              | Key              | Action                         |
+| ---------------------- | ------------------- | ---------------- | ------------------------------ |
+| Space / Return / Enter | Show answer         | 1 2 3 4          | Again / Hard / Good / Easy     |
+| E                      | Edit                | M                | More (context menu)            |
+| U                      | Undo                | R / F5           | Replay audio                   |
+| 5 / 6 / 7              | Pause / −5 s / +5 s | Shift+V / V      | Record / replay own voice      |
+| Ctrl+1…7               | Flags               | \*               | Mark note                      |
+| - / =                  | Bury card / note    | @ / !            | Suspend card / note            |
+| Ctrl+Alt+N             | Forget              | Ctrl+Shift+D     | Set due date                   |
+| Ctrl+Alt+E             | Create copy         | Ctrl+Delete (⌘⌫) | Delete note                    |
+| O                      | Options             | I / Ctrl+Alt+I   | Card info / previous card info |
+| Shift+A                | Auto advance        |                  |                                |
+
+The Korean-layout duplicates (ㄷ, ㅡ, ㄱ, …) stay fixed.
+
+### Browser ✓ (`forms/browser.ui` and `browser.py`)
+
+| Key                        | Action                                    | Key                               | Action                |
+| -------------------------- | ----------------------------------------- | --------------------------------- | --------------------- |
+| Ctrl+Z / Ctrl+Shift+Z      | Undo / redo                               | Ctrl+Alt+A                        | Select all            |
+| Ctrl+Alt+S                 | Invert selection                          | Ctrl+Alt+T                        | Cards/notes mode      |
+| Ctrl+F                     | Find                                      | Ctrl+Shift+F                      | Sidebar filter        |
+| Ctrl+Alt+F                 | Find & replace                            | Ctrl+Shift+N                      | Focus note            |
+| Ctrl+Shift+L               | Card list (released while editor focused) | Ctrl+Shift+R                      | Sidebar               |
+| Ctrl+P / Ctrl+N            | Previous / next card                      | Home, Shift+Home / End, Shift+End | First / last card     |
+| Ctrl+N (single deck shown) | Add note to deck                          | Ctrl+E                            | Add notes             |
+| Ctrl+Alt+E                 | Create copy                               | Ctrl+Delete                       | Delete (table)        |
+| Ctrl+Shift+Backspace       | Delete notes (anywhere)                   | Ctrl+Shift+A / Ctrl+Alt+Shift+A   | Add / remove tags     |
+| Ctrl+K                     | Toggle mark                               | Ctrl+Shift+M                      | Change note type      |
+| Ctrl+Shift+E               | Export notes                              | Ctrl+D                            | Change deck           |
+| Ctrl+Shift+I               | Info                                      | Ctrl+Shift+S                      | Reposition            |
+| Ctrl+Shift+D               | Set due date                              | Ctrl+Shift+G                      | Grade now             |
+| Ctrl+Alt+N                 | Forget                                    | Ctrl+J / Ctrl+Shift+J             | Toggle suspend / bury |
+| Ctrl+G, Ctrl+Alt+G         | Create filtered deck                      | Ctrl+1…7                          | Flags                 |
+| Ctrl+0                     | Reset editor zoom                         | F1                                | Guide                 |
+| Ctrl+W                     | Close                                     | Ctrl+Shift+P                      | Toggle preview        |
+
+Fixed: Alt+1…n switch the sidebar tool, and Esc closes the browser.
+
+### Card preview ✓
+
+Ctrl+Shift+P close · Left/Right previous/next · R replay · B back side only
+
+### Card layout ✓
+
+Ctrl+1/2/3 front/back/styling · F3/F4 previous/next card type ·
+Ctrl+Return save. Alt+1…9 cloze number is fixed.
+
+### Editor ✓ (TypeScript, add/edit/browser)
+
+| Key                         | Action                             | Key                             | Action                      |
+| --------------------------- | ---------------------------------- | ------------------------------- | --------------------------- |
+| Ctrl+B / I / U              | Bold / italic / underline          | Ctrl+= / Ctrl+Shift+=           | Super-/subscript            |
+| Ctrl+R                      | Remove formatting                  | F7 / F8                         | Text colour / change colour |
+| Ctrl+, / Ctrl+.             | Bulleted / numbered list           | Ctrl+Shift+L                    | Toggle bulleted list        |
+| Ctrl+Shift+. / Ctrl+Shift+, | Indent / outdent                   | Ctrl+Shift+C / Ctrl+Alt+Shift+C | Cloze / same cloze          |
+| Ctrl+M, M / E / C           | MathJax inline / block / chemistry | Ctrl+T, T / E / M               | LaTeX / equation / math env |
+| F3 / F5                     | Attach / record audio              | Ctrl+Shift+X                    | HTML editor                 |
+| F9 / Shift+F9               | Sticky field / all fields          | Ctrl+Shift+T                    | Tags                        |
+| Ctrl+L                      | Cards…                             | Ctrl+N / Ctrl+D                 | Note type / deck chooser    |
+| Ctrl+Shift+P                | Preview                            | Ctrl+Enter                      | Add / close                 |
+| Ctrl+H (Ctrl+Shift+H mac)   | History                            | F1                              | Help                        |
+
+Fixed: Tab/Shift+Tab indent inside lists. In the tag editor, Ctrl+A, Ctrl+C
+and Backspace act on the selected tags. In the MathJax editor, Enter and
+Shift+Enter accept or add a line, and Esc closes it.
+
+### Not configurable (dialog-local)
+
+- **Debug console:** Ctrl+Return / Ctrl+Shift+Return run, Ctrl+L / Ctrl+Shift+L
+  clear, Ctrl+S / O / D script.
+- **Image occlusion editor:**
+    - Tools: S R E P T C M.
+    - Undo / redo: Ctrl+Z / Ctrl+Y.
+    - Zoom: [ ] F.
+    - L toggles translucency, Delete deletes, D duplicates.
+    - G / U group and ungroup, A selects all.
+    - Shift+L/H/R/T/V/B align.
+    - Ctrl+Alt+Shift+M toggles the mask editor.
+- **Import, deck options and change note type:** Ctrl+Enter.
+- **Import CSV:** Ctrl+T and Ctrl+Shift+T for tags.
+- **Choosers:** Ctrl+N and Ctrl+D in the legacy Qt editor.
+- **Study deck list:** Ctrl+1…9.
+- **Statistics:** G.
+- **Add-on config:** Ctrl+Return.

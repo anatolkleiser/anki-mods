@@ -17,6 +17,7 @@ import aqt.browser
 import aqt.editor
 import aqt.forms
 import aqt.operations
+import aqt.shortcuts
 from anki._legacy import deprecated
 from anki.cards import Card, CardId
 from anki.collection import (
@@ -32,7 +33,7 @@ from anki.decks import DeckId
 from anki.errors import NotFoundError, SearchError
 from anki.lang import without_unicode_isolation
 from anki.models import NotetypeId
-from anki.notes import NoteId
+from anki.notes import Note, NoteId
 from anki.scheduler.base import ScheduleCardsAsNew
 from anki.tags import MARKED_TAG
 from anki.utils import is_mac, strip_html_media
@@ -95,9 +96,6 @@ from .previewer import Previewer
 from .sidebar import SidebarItemType, SidebarTreeView
 from .table import Table
 
-DELETE_SHORTCUT = "Ctrl+Shift+Backspace"
-# takes over from 'next card' while a single deck is shown
-ADD_SHORTCUT = "Ctrl+N"
 DELETE_ICON = "icons:delete-outline.svg"
 
 
@@ -320,6 +318,12 @@ class Browser(QMainWindow):
         deck_id = self.add_deck_id
         if deck_id is None or self.col.decks.get(deck_id, default=False) is None:
             return
+        if (card_id := self._reusable_empty_card_id(deck_id)) is not None:
+            # the previously added note is still empty; removing it would make
+            # the editor reload a deleted note, so focus it again instead
+            self.focusTo = 0
+            self.table.select_single_card(card_id)
+            return
         notetype_id = self.get_active_note_type_id() or NotetypeId(
             self.col.defaults_for_adding(current_review_card=None).notetype_id
         )
@@ -361,6 +365,7 @@ class Browser(QMainWindow):
     def setupMenus(self) -> None:
         # actions
         f = self.form
+        aqt.shortcuts.apply_to_form(f, aqt.shortcuts.ShortcutContext.BROWSER)
 
         # edit
         qconnect(f.actionUndo.triggered, self.undo)
@@ -370,7 +375,6 @@ class Browser(QMainWindow):
         if not is_mac:
             f.actionClose.setVisible(False)
         qconnect(f.actionCreateFilteredDeck.triggered, self.createFilteredDeck)
-        f.actionCreateFilteredDeck.setShortcuts(["Ctrl+G", "Ctrl+Alt+G"])
 
         # view
         qconnect(f.actionFullScreen.triggered, self.mw.on_toggle_full_screen)
@@ -416,7 +420,8 @@ class Browser(QMainWindow):
         qconnect(f.actionManage_Note_Types.triggered, self.mw.onNoteTypes)
         qconnect(f.actionDelete.triggered, self.delete_selected_notes)
         # unlike the menu shortcut, this one doesn't require the table to be focused
-        QShortcut(QKeySequence(DELETE_SHORTCUT), self, self._on_delete_shortcut)
+        for key in aqt.shortcuts.keys("browser.delete_notes"):
+            QShortcut(QKeySequence(key), self, self._on_delete_shortcut)
 
         # cards
         qconnect(f.actionChange_Deck.triggered, self.set_deck_of_selected_cards)
@@ -599,7 +604,9 @@ class Browser(QMainWindow):
             self._add_note_action.setShortcut(QKeySequence())
         else:
             self.form.actionNextCard.setShortcut(QKeySequence())
-            self._add_note_action.setShortcut(QKeySequence(ADD_SHORTCUT))
+            aqt.shortcuts.apply_to_action(
+                self._add_note_action, "browser.add_note_to_deck"
+            )
         self.table.update_add_button()
 
     def _deck_for_search(self, search: str) -> DeckId | None:
@@ -706,7 +713,8 @@ class Browser(QMainWindow):
         self.form.gridLayout.addWidget(switch, 0, 0)
 
     def setupEditor(self) -> None:
-        QShortcut(QKeySequence("Ctrl+Shift+P"), self, self.onTogglePreview)
+        for key in aqt.shortcuts.keys("browser.toggle_preview"):
+            QShortcut(QKeySequence(key), self, self.onTogglePreview)
 
         def add_preview_button(
             editor: aqt.editor.Editor | aqt.editor.NewEditor,
@@ -766,19 +774,34 @@ class Browser(QMainWindow):
         self._update_selection_actions()
         gui_hooks.browser_did_change_row(self)
 
-    def _remove_new_note_if_empty(self, parent: QWidget) -> None:
-        """Remove the note added by add_empty_note() if nothing was entered,
-        as notes with empty fields can't be added through the Add screen."""
+    def _new_note_if_empty(self) -> Note | None:
+        "The note added by add_empty_note(), if it still exists and is empty."
         if (note_id := self._new_empty_note_id) is None:
-            return
-        self._new_empty_note_id = None
+            return None
         try:
             note = self.col.get_note(note_id)
         except NotFoundError:
-            return
+            return None
         if any(strip_html_media(field).strip() for field in note.fields):
-            return
-        remove_notes(parent=parent, note_ids=[note_id]).run_in_background()
+            return None
+        return note
+
+    def _reusable_empty_card_id(self, deck_id: DeckId) -> CardId | None:
+        "The card of the empty note from add_empty_note(), if it is in deck_id."
+        if (note := self._new_note_if_empty()) is None:
+            return None
+        for card in note.cards():
+            if card.did == deck_id:
+                return card.id
+        return None
+
+    def _remove_new_note_if_empty(self, parent: QWidget) -> None:
+        """Remove the note added by add_empty_note() if nothing was entered,
+        as notes with empty fields can't be added through the Add screen."""
+        note = self._new_note_if_empty()
+        self._new_empty_note_id = None
+        if note is not None:
+            remove_notes(parent=parent, note_ids=[note.id]).run_in_background()
 
     @deprecated(info="please use on_all_or_selected_rows_changed() instead.")
     def onRowChanged(self, *args: Any) -> None:

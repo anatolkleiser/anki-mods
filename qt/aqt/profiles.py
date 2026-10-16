@@ -565,6 +565,18 @@ create table if not exists profiles
     def set_answer_key(self, ease: int, key: str):
         self.meta.setdefault("answer_keys", self.default_answer_keys)[ease] = key
 
+    def shortcuts(self) -> dict[str, str]:
+        "Changed keyboard shortcuts; see aqt.shortcuts."
+        return self.meta.get("shortcuts", {})
+
+    def set_shortcut(self, id: str, key: str | None) -> None:
+        "None restores the default."
+        shortcuts = self.meta.setdefault("shortcuts", {})
+        if key is None:
+            shortcuts.pop(id, None)
+        else:
+            shortcuts[id] = key
+
     def hide_top_bar(self) -> bool:
         return self.meta.get("hide_top_bar", False)
 

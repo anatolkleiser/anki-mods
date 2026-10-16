@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 import aqt.browser
+import aqt.shortcuts
 from anki.cards import Card
 from anki.collection import Config
 from anki.tags import MARKED_TAG
@@ -76,7 +77,9 @@ class Previewer(QDialog):
     def _create_gui(self) -> None:
         self.setWindowTitle(tr.actions_preview())
 
-        self.close_shortcut = QShortcut(QKeySequence("Ctrl+Shift+P"), self)
+        self.close_shortcut = QShortcut(
+            QKeySequence(aqt.shortcuts.key("previewer.close")), self
+        )
         qconnect(self.close_shortcut.activated, self.close)
 
         qconnect(self.finished, self._on_finished)
@@ -100,13 +103,17 @@ class Previewer(QDialog):
         )
         assert self._replay is not None
         self._replay.setAutoDefault(False)
-        self._replay.setShortcut(QKeySequence("R"))
-        self._replay.setToolTip(tr.actions_shortcut_key(val="R"))
+        self._replay.setShortcut(
+            QKeySequence(aqt.shortcuts.key("previewer.replay_audio"))
+        )
+        self._replay.setToolTip(aqt.shortcuts.tooltip("previewer.replay_audio"))
         qconnect(self._replay.clicked, self._on_replay_audio)
 
         both_sides_button = QCheckBox(tr.qt_misc_back_side_only())
-        both_sides_button.setShortcut(QKeySequence("B"))
-        both_sides_button.setToolTip(tr.actions_shortcut_key(val="B"))
+        both_sides_button.setShortcut(
+            QKeySequence(aqt.shortcuts.key("previewer.back_side_only"))
+        )
+        both_sides_button.setToolTip(aqt.shortcuts.tooltip("previewer.back_side_only"))
         self.bbox.addButton(both_sides_button, QDialogButtonBox.ButtonRole.ActionRole)
         self._show_both_sides = self.mw.col.get_config_bool(
             Config.Bool.PREVIEW_BOTH_SIDES
@@ -324,8 +331,8 @@ class MultiCardPreviewer(Previewer):
         assert self._prev is not None
 
         self._prev.setAutoDefault(False)
-        self._prev.setShortcut(QKeySequence("Left"))
-        self._prev.setToolTip(tr.qt_misc_shortcut_key_left_arrow())
+        self._prev.setShortcut(QKeySequence(aqt.shortcuts.key("previewer.previous")))
+        self._prev.setToolTip(aqt.shortcuts.tooltip("previewer.previous"))
 
         self._next = self.bbox.addButton(
             "<" if self.layoutDirection() == Qt.LayoutDirection.RightToLeft else ">",
@@ -335,8 +342,8 @@ class MultiCardPreviewer(Previewer):
         assert self._next is not None
 
         self._next.setAutoDefault(True)
-        self._next.setShortcut(QKeySequence("Right"))
-        self._next.setToolTip(tr.qt_misc_shortcut_key_right_arrow_or_enter())
+        self._next.setShortcut(QKeySequence(aqt.shortcuts.key("previewer.next")))
+        self._next.setToolTip(aqt.shortcuts.tooltip("previewer.next"))
 
         qconnect(self._prev.clicked, self._on_prev)
         qconnect(self._next.clicked, self._on_next)

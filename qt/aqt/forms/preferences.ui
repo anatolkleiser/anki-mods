@@ -464,13 +464,6 @@
            </layout>
           </widget>
          </item>
-         <item>
-          <widget class="QGroupBox" name="preferences_answer_keys">
-           <property name="title">
-            <string>preferences_answer_keys</string>
-           </property>
-          </widget>
-         </item>
         </layout>
        </item>
        <item>
@@ -1226,6 +1219,108 @@
           </size>
          </property>
         </spacer>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="shortcutsTab">
+      <attribute name="title">
+       <string>preferences_shortcuts</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="shortcutsLayout">
+       <item>
+        <widget class="QLabel" name="shortcuts_explanation">
+         <property name="text">
+          <string>preferences_shortcuts_explanation</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="shortcuts_search">
+         <property name="placeholderText">
+          <string>preferences_shortcuts_search</string>
+         </property>
+         <property name="clearButtonEnabled">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTreeWidget" name="shortcuts_tree">
+         <property name="contextMenuPolicy">
+          <enum>Qt::ContextMenuPolicy::CustomContextMenu</enum>
+         </property>
+         <property name="alternatingRowColors">
+          <bool>true</bool>
+         </property>
+         <property name="uniformRowHeights">
+          <bool>true</bool>
+         </property>
+         <column>
+          <property name="text">
+           <string>preferences_shortcuts_action</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>preferences_shortcuts_shortcut</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>preferences_shortcuts_default</string>
+          </property>
+         </column>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="shortcutsButtons">
+         <item>
+          <widget class="QPushButton" name="shortcuts_reset">
+           <property name="text">
+            <string>preferences_shortcuts_reset</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="shortcuts_disable">
+           <property name="text">
+            <string>preferences_shortcuts_disable</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="shortcutsSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="shortcuts_reset_all">
+           <property name="text">
+            <string>preferences_shortcuts_reset_all</string>
+           </property>
+           <property name="autoDefault">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
        </item>
       </layout>
      </widget>

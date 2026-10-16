@@ -11,6 +11,17 @@ const keyCodeLookup = {
     Delete: 46,
     Tab: 9,
     Enter: 13,
+    Escape: 27,
+    Space: 32,
+    PageUp: 33,
+    PageDown: 34,
+    End: 35,
+    Home: 36,
+    Left: 37,
+    Up: 38,
+    Right: 39,
+    Down: 40,
+    Insert: 45,
     F1: 112,
     F2: 113,
     F3: 114,
@@ -36,6 +47,24 @@ const keyCodeLookup = {
     "`": 192,
 };
 
+declare global {
+    // eslint-disable-next-line no-var
+    var shortcutOverrides: Record<string, string> | undefined;
+}
+
+/**
+ * Pages may be given user-configured shortcuts, keyed by the default key
+ * combination used in code. An empty string disables the shortcut.
+ */
+function resolveKeyCombination(keyCombinationString: string): string {
+    return globalThis.shortcutOverrides?.[keyCombinationString]
+        ?? keyCombinationString;
+}
+
+function noop(): void {
+    // shortcut was disabled by the user
+}
+
 function isRequiredModifier(modifier: string): boolean {
     return !modifier.endsWith("?");
 }
@@ -53,7 +82,11 @@ function toPlatformString(keyCombination: string[]): string {
 }
 
 export function getPlatformString(keyCombinationString: string): string {
-    return splitKeyCombinationString(keyCombinationString)
+    const resolved = resolveKeyCombination(keyCombinationString);
+    if (!resolved) {
+        return "";
+    }
+    return splitKeyCombinationString(resolved)
         .map(toPlatformString)
         .join(", ");
 }
@@ -152,6 +185,19 @@ const defaultRegisterShortcutRestParams = {
 };
 
 export function registerShortcut(
+    callback: (event: KeyboardEvent) => void,
+    keyCombinationString: string,
+    restParams: Partial<RegisterShortcutRestParams> = defaultRegisterShortcutRestParams,
+): () => void {
+    const resolved = resolveKeyCombination(keyCombinationString);
+    if (!resolved) {
+        return noop;
+    }
+    return registerUnmappedShortcut(callback, resolved, restParams);
+}
+
+/** Like registerShortcut(), but ignores user-configured overrides. */
+export function registerUnmappedShortcut(
     callback: (event: KeyboardEvent) => void,
     keyCombinationString: string,
     restParams: Partial<RegisterShortcutRestParams> = defaultRegisterShortcutRestParams,

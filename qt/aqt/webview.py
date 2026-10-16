@@ -154,6 +154,12 @@ class AnkiWebPage(QWebEnginePage):
         self._onBridgeCmd = onBridgeCmd
         self._kind = kind
         self._setupBridge()
+        if kind == AnkiWebViewKind.EDITOR:
+            from aqt.shortcuts import editor_script
+
+            scripts = self.scripts()
+            assert scripts is not None
+            scripts.insert(editor_script())
         self.open_links_externally = True
 
     def _profileForPage(self, kind: AnkiWebViewKind) -> QWebEngineProfile:

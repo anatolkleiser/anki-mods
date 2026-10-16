@@ -5,7 +5,7 @@ import { bridgeCommand } from "@tslib/bridgecommand";
 import { getSelection } from "@tslib/cross-browser";
 import { on, preventDefault } from "@tslib/events";
 import { isApplePlatform } from "@tslib/platform";
-import { registerShortcut } from "@tslib/shortcuts";
+import { registerShortcut, registerUnmappedShortcut } from "@tslib/shortcuts";
 import type { Callback } from "@tslib/typing";
 
 import type { SelectionLocation } from "$lib/domlib/location";
@@ -136,7 +136,9 @@ if (isApplePlatform()) {
 
 export function preventBuiltinShortcuts(editable: HTMLElement): void {
     for (const keyCombination of ["Control+B", "Control+U", "Control+I"]) {
-        registerShortcut(preventDefault, keyCombination, { target: editable });
+        // block Chromium's built-in formatting even if the toolbar buttons
+        // were given different shortcuts
+        registerUnmappedShortcut(preventDefault, keyCombination, { target: editable });
     }
 }
 

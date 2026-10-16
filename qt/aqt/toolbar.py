@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import aqt
+import aqt.shortcuts
 from anki.sync import SyncStatus
 from aqt import gui_hooks, props
 from aqt.qt import *
@@ -356,28 +357,28 @@ class Toolbar:
                 "decks",
                 tr.actions_decks(),
                 self._deckLinkHandler,
-                tip=tr.actions_shortcut_key(val="D"),
+                tip=aqt.shortcuts.tooltip("main.decks"),
                 id="decks",
             ),
             self.create_link(
                 "add",
                 tr.actions_add(),
                 self._addLinkHandler,
-                tip=tr.actions_shortcut_key(val="A"),
+                tip=aqt.shortcuts.tooltip("main.add"),
                 id="add",
             ),
             self.create_link(
                 "browse",
                 tr.qt_misc_browse(),
                 self._browseLinkHandler,
-                tip=tr.actions_shortcut_key(val="B"),
+                tip=aqt.shortcuts.tooltip("main.browse"),
                 id="browse",
             ),
             self.create_link(
                 "stats",
                 tr.qt_misc_stats(),
                 self._statsLinkHandler,
-                tip=tr.actions_shortcut_key(val="T"),
+                tip=aqt.shortcuts.tooltip("main.stats"),
                 id="stats",
             ),
         ]
@@ -409,7 +410,7 @@ class Toolbar:
 
     def _create_sync_link(self) -> str:
         name = tr.qt_misc_sync()
-        title = tr.actions_shortcut_key(val="Y")
+        title = aqt.shortcuts.tooltip("main.sync")
         label = "sync"
         self.link_handlers[label] = self._syncLinkHandler
 

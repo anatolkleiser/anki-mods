@@ -9,6 +9,7 @@ from typing import Any
 import aqt
 import aqt.browser
 import aqt.forms
+import aqt.shortcuts
 from anki.cards import Card, CardId
 from anki.collection import Collection, Config, OpChanges
 from anki.consts import *
@@ -24,7 +25,6 @@ from aqt.utils import (
     qtMenuShortcutWorkaround,
     restoreHeader,
     saveHeader,
-    shortcut,
     showInfo,
     tr,
 )
@@ -370,9 +370,8 @@ class Table:
         self._add_button = QPushButton(tr.actions_add(), viewport)
         self._add_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._add_button.setToolTip(
-            shortcut(f"{tr.actions_add()} ({aqt.browser.browser.ADD_SHORTCUT})")
-        )
+        if key := aqt.shortcuts.display("browser.add_note_to_deck"):
+            self._add_button.setToolTip(f"{tr.actions_add()} ({key})")
         qconnect(self._add_button.clicked, self.browser.add_empty_note)
         self._add_button_filter = _ResizeFilter(self.update_add_button, viewport)
         viewport.installEventFilter(self._add_button_filter)
@@ -493,7 +492,9 @@ class Table:
         )
         assert delete is not None
         # display only; the shortcut itself is registered on the browser
-        delete.setShortcut(QKeySequence(aqt.browser.browser.DELETE_SHORTCUT))
+        delete.setShortcuts(
+            [QKeySequence(k) for k in aqt.shortcuts.keys("browser.delete_notes")]
+        )
         qconnect(delete.triggered, self.browser.delete_notes)
         menu.addSeparator()
         if self.is_notes_mode():

@@ -12,6 +12,7 @@ from typing import Any, Match, cast
 import aqt
 import aqt.forms
 import aqt.operations
+import aqt.shortcuts
 from anki import stdmodels
 from anki.collection import OpChanges
 from anki.consts import *
@@ -37,7 +38,6 @@ from aqt.utils import (
     restoreSplitter,
     saveGeom,
     saveSplitter,
-    shortcut,
     showInfo,
     tooltip,
     tr,
@@ -181,37 +181,28 @@ class CardLayout(QDialog):
         return s
 
     def setupShortcuts(self) -> None:
-        self.tform.front_button.setToolTip(shortcut("Ctrl+1"))
-        self.tform.back_button.setToolTip(shortcut("Ctrl+2"))
-        self.tform.style_button.setToolTip(shortcut("Ctrl+3"))
-        QShortcut(  # type: ignore
-            QKeySequence("Ctrl+1"),
-            self,
-            activated=self.tform.front_button.click,
-        )
-        QShortcut(  # type: ignore
-            QKeySequence("Ctrl+2"),
-            self,
-            activated=self.tform.back_button.click,
-        )
-        QShortcut(  # type: ignore
-            QKeySequence("Ctrl+3"),
-            self,
-            activated=self.tform.style_button.click,
-        )
-        QShortcut(  # type: ignore
-            QKeySequence("F3"),
-            self,
-            activated=lambda: (
+        def bind(id: str, fn: Callable) -> None:
+            for key in aqt.shortcuts.keys(id):
+                QShortcut(QKeySequence(key), self, activated=fn)  # type: ignore
+
+        for button, id in (
+            (self.tform.front_button, "clayout.front"),
+            (self.tform.back_button, "clayout.back"),
+            (self.tform.style_button, "clayout.styling"),
+        ):
+            button.setToolTip(aqt.shortcuts.display(id))
+            bind(id, button.click)
+        bind(
+            "clayout.previous_card_type",
+            lambda: (
                 self.update_current_ordinal_and_redraw(self.ord - 1)
                 if self.ord - 1 > -1
                 else None
             ),
         )
-        QShortcut(  # type: ignore
-            QKeySequence("F4"),
-            self,
-            activated=lambda: (
+        bind(
+            "clayout.next_card_type",
+            lambda: (
                 self.update_current_ordinal_and_redraw(self.ord + 1)
                 if self.ord + 1 < len(self.templates)
                 else None
@@ -465,7 +456,7 @@ class CardLayout(QDialog):
         l.addStretch()
         save = QPushButton(tr.actions_save())
         save.setAutoDefault(False)
-        save.setShortcut(QKeySequence("Ctrl+Return"))
+        save.setShortcut(QKeySequence(aqt.shortcuts.key("clayout.save")))
         l.addWidget(save)
         qconnect(save.clicked, self.accept)
 
