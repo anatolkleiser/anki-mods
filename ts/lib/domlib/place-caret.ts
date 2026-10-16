@@ -32,3 +32,26 @@ export function placeCaretAfterContent(node: Node): void {
 
     placeCaret(node, range);
 }
+
+/**
+ * Places the caret after the `offset`-th character of the text inside `root`.
+ */
+export function placeCaretAtTextOffset(root: Node, offset: number): void {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let remaining = offset;
+    let node: Node | null;
+
+    while ((node = walker.nextNode())) {
+        const length = node.textContent?.length ?? 0;
+        if (remaining <= length) {
+            const range = new Range();
+            range.setStart(node, remaining);
+            range.collapse(true);
+            placeCaret(root, range);
+            return;
+        }
+        remaining -= length;
+    }
+
+    placeCaretAfterContent(root);
+}

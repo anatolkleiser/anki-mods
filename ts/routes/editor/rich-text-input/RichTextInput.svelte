@@ -69,7 +69,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import { getAllContexts, getContext, mount, onMount, tick } from "svelte";
     import type { Readable } from "svelte/store";
 
-    import { placeCaretAfterContent } from "$lib/domlib/place-caret";
+    import {
+        placeCaretAfterContent,
+        placeCaretAtTextOffset,
+    } from "$lib/domlib/place-caret";
     import useDOMMirror from "$lib/sveltelib/dom-mirror";
     import useInputHandler from "$lib/sveltelib/input-handler";
     import { pageTheme } from "$lib/sveltelib/theme";
@@ -77,6 +80,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import ContentEditable from "$lib/editable/ContentEditable.svelte";
     import { context as editingAreaContext } from "../EditingArea.svelte";
     import { Flag } from "../helpers";
+    import { caretOffsetAfterChange } from "../undo-stack";
     import { context as noteEditorContext } from "../NoteEditor.svelte";
     import getNormalizingNodeStore from "./normalizing-node-store";
     import useRichTextResolve from "./rich-text-resolve";
@@ -134,6 +138,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return hidden;
     }
 
+    async function replaceContent(html: string): Promise<void> {
+        const richText = await richTextPromise;
+        const before = richText.textContent ?? "";
+        richText.replaceChildren(storedToFragment(html));
+        placeCaretAtTextOffset(
+            richText,
+            caretOffsetAfterChange(before, richText.textContent ?? ""),
+        );
+        // the DOM mirror updates the content from a mutation observer microtask
+        await Promise.resolve();
+    }
+
     let richTextDiv: HTMLElement;
 
     async function getInputAPI(target: EventTarget): Promise<FocusableInputAPI | null> {
@@ -152,6 +168,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         focusable: !hidden,
         toggle,
         getInputAPI,
+        replaceContent,
         moveCaretToEnd,
         preventResubscription,
         inputHandler,

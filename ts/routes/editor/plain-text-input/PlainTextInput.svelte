@@ -46,6 +46,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import CodeMirror from "../CodeMirror.svelte";
     import { context as editingAreaContext } from "../EditingArea.svelte";
     import { Flag } from "../helpers";
+    import { caretOffsetAfterChange } from "../undo-stack";
     import { context as noteEditorContext } from "../NoteEditor.svelte";
     import removeProhibitedTags from "./remove-prohibited";
     import { storedToUndecorated, undecoratedToStored } from "./transform";
@@ -59,6 +60,16 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         ...baseOptions,
         ...gutterOptions,
         ...{ autoCloseTags: $closeHTMLTags },
+        // undo/redo are handled by the note editor's per-field undo stack
+        extraKeys: {
+            ...(baseOptions.extraKeys as object),
+            "Ctrl-Z": false as const,
+            "Shift-Ctrl-Z": false as const,
+            "Ctrl-Y": false as const,
+            "Cmd-Z": false as const,
+            "Shift-Cmd-Z": false as const,
+            "Cmd-Y": false as const,
+        },
     };
 
     const { focusedInput } = noteEditorContext.get();
@@ -90,6 +101,22 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return hidden;
     }
 
+    function storedToCode(html: string): string {
+        /* We call `removeProhibitedTags` here, because content might
+         * have been changed outside the editor, and we need to parse
+         * it to get the "neutral" value. Otherwise, there might be
+         * conflicts with other editing inputs */
+        return removeProhibitedTags(storedToUndecorated(html));
+    }
+
+    async function replaceContent(html: string): Promise<void> {
+        const editor = await codeMirror.editor;
+        const before = editor.getValue();
+        const after = storedToCode(html);
+        editor.setValue(after);
+        editor.setCursor(editor.posFromIndex(caretOffsetAfterChange(before, after)));
+    }
+
     async function getInputAPI(target: EventTarget): Promise<FocusableInputAPI | null> {
         const editor = (await codeMirror.editor) as any;
 
@@ -108,6 +135,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         refocus,
         toggle,
         getInputAPI,
+        replaceContent,
         codeMirror,
     };
 
@@ -143,13 +171,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         $editingInputs = $editingInputs;
 
         return singleCallback(
-            content.subscribe((html: string): void =>
-                /* We call `removeProhibitedTags` here, because content might
-                 * have been changed outside the editor, and we need to parse
-                 * it to get the "neutral" value. Otherwise, there might be
-                 * conflicts with other editing inputs */
-                code.set(removeProhibitedTags(storedToUndecorated(html))),
-            ),
+            content.subscribe((html: string): void => code.set(storedToCode(html))),
             code.subscribe((html: string): void =>
                 content.set(undecoratedToStored(html)),
             ),

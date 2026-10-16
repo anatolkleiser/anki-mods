@@ -63,6 +63,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import OptionsButtons from "./OptionsButtons.svelte";
     import RichTextClozeButtons from "./RichTextClozeButtons.svelte";
     import TemplateButtons from "./TemplateButtons.svelte";
+    import UndoButtons from "./UndoButtons.svelte";
     import type { InlineButtonsAPI } from "./InlineButtons.svelte";
 
     export let size: number;
@@ -114,6 +115,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
             <Item id="settings">
                 <OptionsButtons api={optionsButtons} />
+            </Item>
+
+            <Item id="undo">
+                <UndoButtons />
             </Item>
 
             <Item id="inlineFormatting">

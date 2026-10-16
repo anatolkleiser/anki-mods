@@ -3,7 +3,7 @@ Copyright: Ankitects Pty Ltd and contributors
 License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <script context="module" lang="ts">
-    import type { Writable } from "svelte/store";
+    import type { Readable, Writable } from "svelte/store";
 
     import Collapsible from "$lib/components/Collapsible.svelte";
 
@@ -26,6 +26,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         lastIOImagePath: Writable<string | null>;
         saveNow: () => Promise<void>;
         isLegacy: boolean;
+        fieldUndo: FieldUndoAPI;
+    }
+
+    type UndoState = {
+        undoable: boolean;
+        redoable: boolean;
+    };
+
+    /** Undo/redo for the content of the focused field */
+    export interface FieldUndoAPI extends Readable<UndoState> {
+        undo(): Promise<void>;
+        redo(): Promise<void>;
     }
 
     interface LoadNoteArgs {
@@ -100,6 +112,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import PlainTextBadge from "./PlainTextBadge.svelte";
     import RichTextInput, { editingInputIsRichText } from "./rich-text-input";
     import RichTextBadge from "./RichTextBadge.svelte";
+    import { UndoStack } from "./undo-stack";
     import type { HistoryEntry, NotetypeIdAndModTime, SessionOptions } from "./types";
 
     let loadController: AbortController | null = null;
@@ -141,7 +154,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         for (let i = fieldStores.length; i < fieldValues.length; i++) {
             const newStore = writable("");
             fieldStores[i] = newStore;
-            newStore.subscribe((value) => updateField(i, value));
+            undoStacks[i] = new UndoStack();
+            newStore.subscribe((value) => {
+                recordFieldChange(i, value);
+                updateField(i, value);
+            });
         }
 
         for (
@@ -150,12 +167,88 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             i = fieldStores.length
         ) {
             fieldStores.pop();
+            undoStacks.pop();
         }
 
         for (const [index, value] of fieldValues.entries()) {
             fieldStores[index].set(value);
+            undoStacks[index].reset(get(fieldStores[index]));
+        }
+        updateUndoState();
+    }
+
+    const undoStacks: UndoStack[] = [];
+    /** The focused field; only its changes create undo steps */
+    let undoFieldIndex: number | null = null;
+    /** The field whose content is being restored by undo/redo */
+    let restoringFieldIndex: number | null = null;
+    /** used to make the toolbar buttons reactive */
+    const undoState = writable<UndoState>({ undoable: false, redoable: false });
+
+    function updateUndoState(): void {
+        const stack = undoFieldIndex === null ? undefined : undoStacks[undoFieldIndex];
+        undoState.set({
+            undoable: stack?.canUndo ?? false,
+            redoable: stack?.canRedo ?? false,
+        });
+    }
+
+    function recordFieldChange(index: number, value: string): void {
+        const stack = undoStacks[index];
+        if (!stack || index === restoringFieldIndex) {
+            return;
+        }
+        if (index === undoFieldIndex) {
+            stack.record(value);
+        } else {
+            // e.g. normalization when an input mounts, or changes made outside
+            // of the editor
+            stack.replaceCurrent(value);
+        }
+        updateUndoState();
+    }
+
+    function setUndoField(index: number | null): void {
+        undoFieldIndex = index;
+        if (index !== null) {
+            undoStacks[index]?.breakMerge();
+        }
+        updateUndoState();
+    }
+
+    async function restoreFieldContent(redo: boolean): Promise<void> {
+        const index = undoFieldIndex;
+        const input = $focusedInput;
+        if (index === null || !input) {
+            return;
+        }
+        const stack = undoStacks[index];
+        const html = redo ? stack.redo() : stack.undo();
+        if (html === null) {
+            return;
+        }
+
+        restoringFieldIndex = index;
+        try {
+            // updates the inputs of the field that are not focused; the
+            // focused one does not sync with the store while focused
+            fieldStores[index].set(html);
+            await input.replaceContent(html);
+            // the input may have normalized the content
+            stack.replaceCurrent(get(fieldStores[index]));
+        } finally {
+            restoringFieldIndex = null;
+            updateUndoState();
         }
     }
+
+    // e.g. when the shortcut is held down, restores must not overlap
+    const undoQueue = new SerialQueue();
+    const fieldUndo: FieldUndoAPI = {
+        undo: () => undoQueue.run(() => restoreFieldContent(false)),
+        redo: () => undoQueue.run(() => restoreFieldContent(true)),
+        subscribe: undoState.subscribe,
+    };
 
     let fieldsCollapsed: boolean[] = [];
     export function setCollapsed(defaultCollapsed: boolean[]): void {
@@ -285,17 +378,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         await setMeta(tagsCollapsedMetaKey, collapsed);
     }
 
-    function clearCodeMirrorHistory() {
-        // TODO this is a hack, because it requires the NoteEditor to know implementation details of the PlainTextInput.
-        // It should be refactored once we work on our own Undo stack
-        for (const pi of plainTextInputs) {
-            pi.api.codeMirror.editor.then((editor) => editor.clearHistory());
-        }
-    }
-
     let noteId: number | null = null;
     export function setNoteId(ntid: number): void {
-        clearCodeMirrorHistory();
         noteId = ntid;
     }
 
@@ -306,7 +390,6 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     let note: Note;
     export function setNote(n: Note): void {
         note = n;
-        clearCodeMirrorHistory();
     }
 
     let reviewerCard: Card | null = null;
@@ -1396,6 +1479,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         lastIOImagePath,
         saveNow,
         isLegacy,
+        fieldUndo,
     };
 
     setContextProperty(api);
@@ -1498,14 +1582,17 @@ components and functionality for general note editing.
                     {index}
                     flipInputs={plainTextDefaults[index]}
                     api={fields[index]}
-                    on:focusin={() =>
+                    on:focusin={() => {
+                        setUndoField(index);
                         focusEventQueue.run(async () => {
                             $focusedField = fields[index];
                             focusedFieldIndex = index;
                             setAddonButtonsDisabled(false);
                             bridgeCommand(`focus:${index}`);
-                        })}
-                    on:focusout={() =>
+                        });
+                    }}
+                    on:focusout={() => {
+                        setUndoField(null);
                         focusEventQueue.run(async () => {
                             $focusedField = null;
                             focusedFieldIndex = 0;
@@ -1524,7 +1611,8 @@ components and functionality for general note editing.
                                 await updateCurrentNote();
                                 await updateDuplicateDisplay();
                             }
-                        })}
+                        });
+                    }}
                     on:mouseenter={() => {
                         $hoveredField = fields[index];
                     }}

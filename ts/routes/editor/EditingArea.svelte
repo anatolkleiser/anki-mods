@@ -30,6 +30,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
          * @returns An editing input api that is associated with the event target.
          */
         getInputAPI(target: EventTarget): Promise<FocusableInputAPI | null>;
+        /**
+         * Replaces the content while the input keeps focus, e.g. for undo.
+         * Resolves once the content store has been updated.
+         */
+        replaceContent(html: string): Promise<void>;
     }
 
     export interface EditingAreaAPI {
