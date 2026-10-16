@@ -35,7 +35,7 @@ from anki.models import NotetypeId
 from anki.notes import NoteId
 from anki.scheduler.base import ScheduleCardsAsNew
 from anki.tags import MARKED_TAG
-from anki.utils import is_mac
+from anki.utils import is_mac, strip_html_media
 from aqt import AnkiQt, gui_hooks
 from aqt.addcards import NewAddCards
 from aqt.addcards_legacy import AddCards
@@ -92,7 +92,7 @@ from .find_and_replace import FindAndReplaceDialog
 from .layout import BrowserLayout, QSplitterHandleEventFilter
 from .previewer import BrowserPreviewer as PreviewDialog
 from .previewer import Previewer
-from .sidebar import SidebarTreeView
+from .sidebar import SidebarItemType, SidebarTreeView
 from .table import Table
 
 DELETE_SHORTCUT = "Ctrl+Shift+Backspace"
@@ -144,6 +144,8 @@ class Browser(QMainWindow):
         self.col = self.mw.col
         self.lastFilter = ""
         self.focusTo: int | None = None
+        # note created by add_empty_note(); removed again if left empty
+        self._new_empty_note_id: NoteId | None = None
         # deck the current search is limited to, if any; new notes go there
         self.add_deck_id: DeckId | None = None
         self._previewer: Previewer | None = None
@@ -316,11 +318,12 @@ class Browser(QMainWindow):
         """Add a note with empty fields to the searched deck and open it in the
         editor."""
         deck_id = self.add_deck_id
-        if deck_id is None:
+        if deck_id is None or self.col.decks.get(deck_id, default=False) is None:
             return
         notetype_id = self.get_active_note_type_id() or NotetypeId(
             self.col.defaults_for_adding(current_review_card=None).notetype_id
         )
+        self._remove_new_note_if_empty(parent=self)
         notetype = self.col.models.get(notetype_id)
         assert notetype is not None
         note = self.col.new_note(notetype)
@@ -335,6 +338,7 @@ class Browser(QMainWindow):
             # the extended search still belongs to the deck
             self._set_add_deck(deck_id)
             self.focusTo = 0
+            self._new_empty_note_id = note.id
             self.table.select_single_card(note.card_ids()[0])
 
         add_note(parent=self, note=note, target_deck_id=deck_id).success(
@@ -412,7 +416,7 @@ class Browser(QMainWindow):
         qconnect(f.actionManage_Note_Types.triggered, self.mw.onNoteTypes)
         qconnect(f.actionDelete.triggered, self.delete_selected_notes)
         # unlike the menu shortcut, this one doesn't require the table to be focused
-        QShortcut(QKeySequence(DELETE_SHORTCUT), self, self.delete_notes)
+        QShortcut(QKeySequence(DELETE_SHORTCUT), self, self._on_delete_shortcut)
 
         # cards
         qconnect(f.actionChange_Deck.triggered, self.set_deck_of_selected_cards)
@@ -490,6 +494,7 @@ class Browser(QMainWindow):
     def _closeWindow(self) -> None:
         assert self.editor is not None
 
+        self._remove_new_note_if_empty(parent=self.mw)
         self._cleanup_preview()
         self._card_info.close()
         self.editor.cleanup()
@@ -598,12 +603,24 @@ class Browser(QMainWindow):
         self.table.update_add_button()
 
     def _deck_for_search(self, search: str) -> DeckId | None:
-        """The deck if the search consists only of a single deck term."""
-        if search == self.col.build_search_string(SearchNode(deck="current")):
+        """The deck new notes should go to, if the search shows a single deck:
+        either the current deck, or the deck selected in the sidebar, provided
+        the search hasn't been modified since."""
+        current_deck = SearchNode(deck="current")
+        if search == self.col.build_search_string(current_deck):
             return self.col.decks.get_current_id()
-        for deck in self.col.decks.all_names_and_ids():
-            if search == self.col.build_search_string(SearchNode(deck=deck.name)):
-                return DeckId(deck.id)
+        selected = self.sidebar._selected_items()
+        if len(selected) != 1:
+            return None
+        item = selected[0]
+        if item.search_node is None or search != self.col.build_search_string(
+            item.search_node
+        ):
+            return None
+        if item.item_type == SidebarItemType.DECK_CURRENT:
+            return self.col.decks.get_current_id()
+        if item.item_type == SidebarItemType.DECK:
+            return DeckId(item.id)
         return None
 
     def current_search(self) -> str:
@@ -742,10 +759,26 @@ class Browser(QMainWindow):
             self.editor.card = self.card
         else:
             self.editor.set_note(None)
+        if not (self.card and self.card.nid == self._new_empty_note_id):
+            self._remove_new_note_if_empty(parent=self)
         self._renderPreview()
         self._update_row_actions()
         self._update_selection_actions()
         gui_hooks.browser_did_change_row(self)
+
+    def _remove_new_note_if_empty(self, parent: QWidget) -> None:
+        """Remove the note added by add_empty_note() if nothing was entered,
+        as notes with empty fields can't be added through the Add screen."""
+        if (note_id := self._new_empty_note_id) is None:
+            return
+        self._new_empty_note_id = None
+        try:
+            note = self.col.get_note(note_id)
+        except NotFoundError:
+            return
+        if any(strip_html_media(field).strip() for field in note.fields):
+            return
+        remove_notes(parent=parent, note_ids=[note_id]).run_in_background()
 
     @deprecated(info="please use on_all_or_selected_rows_changed() instead.")
     def onRowChanged(self, *args: Any) -> None:
@@ -983,6 +1016,17 @@ class Browser(QMainWindow):
         if focus != self.form.tableView:
             return
         self.delete_notes()
+
+    def _on_delete_shortcut(self) -> None:
+        """Delete the decks selected in the sidebar if it has focus, and the
+        selected notes otherwise."""
+        if not self.sidebar.hasFocus():
+            self.delete_notes()
+            return
+        index = self.sidebar.currentIndex()
+        item = self.sidebar.model().item_for_index(index)
+        if item and item.item_type == SidebarItemType.DECK:
+            self.sidebar._on_delete_key(index)
 
     @no_arg_trigger
     @skip_if_selection_is_empty
