@@ -103,7 +103,11 @@ class Table:
         This may be a different one than the current card."""
         if self.len_selection() != 1:
             return None
-        return self._model.get_card(self._selected()[0])
+        # the cached count can briefly disagree with Qt's selection, e.g. when
+        # the selected row was deleted (disabled) before a deferred call ran
+        if len(selected := self._selected()) != 1:
+            return None
+        return self._model.get_card(selected[0])
 
     # Get ids
 
