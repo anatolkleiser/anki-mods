@@ -13,12 +13,8 @@
  * That reload must keep the history; loading a different note must clear it.
  */
 
-import type { Page } from "@playwright/test";
-
-import { AddNoteResponse } from "@generated/anki/notes_pb";
-
 import { expect, test } from "./fixtures";
-import { editableField, isRpcResponse } from "./helpers";
+import { addNote, editableField, isRpcResponse, loadNote, openInBrowserEditor } from "./helpers";
 
 // longer than MERGE_INTERVAL_MS, so that the next change starts a new step
 const STEP_PAUSE_MS = 1_200;
@@ -95,48 +91,6 @@ test("undo only affects the focused field", async ({ editor: page }) => {
     await page.keyboard.press("ControlOrMeta+z");
     await expect(first).toHaveText("");
 });
-
-interface AddedNote {
-    noteId: string;
-    notetypeId: string;
-}
-
-async function addNote(page: Page, text: string): Promise<AddedNote> {
-    await editableField(page, 0).click();
-    await page.keyboard.type(text);
-    // Response.body() of the page's own fetch can come back empty, so read
-    // the response while proxying it instead
-    let resolveNoteId: (id: bigint) => void;
-    const noteIdPromise = new Promise<bigint>((resolve) => (resolveNoteId = resolve));
-    await page.route("**/_anki/addNote", async (route) => {
-        const response = await route.fetch();
-        const body = await response.body();
-        resolveNoteId(AddNoteResponse.fromBinary(body).noteId);
-        await route.fulfill({ response, body });
-    }, { times: 1 });
-    await page.getByRole("button", { name: "Add", exact: true }).click();
-    const noteId = await noteIdPromise;
-    const notetypeId = await page.evaluate(() => (window as any).getNoteInfo().mid);
-    return { noteId: noteId.toString(), notetypeId };
-}
-
-async function openInBrowserEditor(page: Page, note: AddedNote): Promise<void> {
-    await page.goto("/editor/?mode=browser", { waitUntil: "domcontentloaded" });
-    // Python waits for this before loading a note (editor.py on_editor_ready)
-    await page.waitForFunction(() => (window as any).__bridgeCalls.includes("editorReady"));
-    await loadNote(page, note);
-}
-
-/** Like Python's Editor.load_note() */
-async function loadNote(page: Page, { noteId, notetypeId }: AddedNote): Promise<void> {
-    const loaded = page.waitForResponse(isRpcResponse("getNote"));
-    await page.evaluate(
-        (args) => (window as any).loadNote({ ...args, initial: true }),
-        { nid: noteId, notetypeId },
-    );
-    await loaded;
-    await expect(editableField(page, 0)).toBeVisible();
-}
 
 test("the history survives the browser reloading the note after saving it", async ({ editor: page }) => {
     const note = await addNote(page, "original");

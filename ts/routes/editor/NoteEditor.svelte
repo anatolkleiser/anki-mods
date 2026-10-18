@@ -1261,6 +1261,12 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             mode !== "add" &&
             previousNote?.id === note!.id &&
             previousNote.notetypeId === note!.notetypeId;
+        // The reload can race with typing, so the focused field keeps its
+        // content and caret; a pending save will store that content anyway.
+        const keepFocusedField = isReload && $focusedField !== null;
+        if (keepFocusedField && focusedFieldIndex in fieldStores) {
+            fieldValues[focusedFieldIndex] = get(fieldStores[focusedFieldIndex]);
+        }
 
         saveSession();
         setFields(fieldNames, fieldValues, isReload);
@@ -1282,7 +1288,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 field.config?.rtl ?? false,
             ]),
         );
-        focusField(focusTo);
+        if (!keepFocusedField) {
+            focusField(focusTo);
+        }
         toolbar.inlineButtons?.setColorButtons([lastTextColor, lastHighlightColor]);
         await toolbar.toolbar?.setShown(
             "image-occlusion-button",
