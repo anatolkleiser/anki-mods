@@ -4,7 +4,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <script lang="ts">
     import * as tr from "@generated/ftl";
-    import { getListItem } from "@tslib/dom";
+    import { getBlockquote, getListItem } from "@tslib/dom";
     import { preventDefault } from "@tslib/events";
     import { getPlatformString, registerShortcut } from "@tslib/shortcuts";
     import { onMount } from "svelte";
@@ -40,37 +40,29 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     export let api = {};
 
+    // outside of lists, Chromium indents by wrapping the paragraph in a
+    // margin-only <blockquote>, and outdent unwraps it again
     const outdentKeyCombination = "Control+Shift+,";
-    function outdentListItem() {
-        if (getListItem(document.activeElement!.shadowRoot!)) {
-            execCommand("outdent");
-        } else {
-            alert("Indent/unindent currently only works with lists.");
-        }
+    function outdent() {
+        execCommand("outdent");
     }
 
     const indentKeyCombination = "Control+Shift+.";
-    function indentListItem() {
-        if (getListItem(document.activeElement!.shadowRoot!)) {
-            execCommand("indent");
-        } else {
-            alert("Indent/unindent currently only works with lists.");
-        }
+    function indent() {
+        execCommand("indent");
     }
 
     onMount(() => {
+        registerShortcut(onIndentKey, indentKeyCombination);
+        registerShortcut(onIndentKey, "Tab");
         registerShortcut((event: KeyboardEvent) => {
+            if (disabled) {
+                return;
+            }
             preventDefault(event);
-            indentListItem();
-        }, indentKeyCombination);
-        registerShortcut((event: KeyboardEvent) => {
-            preventDefault(event);
-            outdentListItem();
+            outdent();
         }, outdentKeyCombination);
-        // inside a list, Tab/Shift+Tab change the indentation; elsewhere they
-        // keep moving between fields
-        registerShortcut(indentWithTab("indent"), "Tab");
-        registerShortcut(indentWithTab("outdent"), "Shift+Tab");
+        registerShortcut(outdentWithShiftTab, "Shift+Tab");
         registerShortcut((event: KeyboardEvent) => {
             if (disabled) {
                 return;
@@ -80,15 +72,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         }, "Control+Shift+L");
     });
 
-    function indentWithTab(command: "indent" | "outdent") {
-        return (event: KeyboardEvent): void => {
-            const root = document.activeElement?.shadowRoot;
-            if (disabled || !root || !getListItem(root)) {
-                return;
-            }
-            preventDefault(event);
-            execCommand(command);
-        };
+    function onIndentKey(event: KeyboardEvent): void {
+        if (disabled) {
+            return;
+        }
+        preventDefault(event);
+        indent();
+    }
+
+    // when there is nothing to outdent, Shift+Tab keeps moving to the
+    // previous field
+    function outdentWithShiftTab(event: KeyboardEvent): void {
+        const root = document.activeElement?.shadowRoot;
+        if (disabled || !root || !(getListItem(root) || getBlockquote(root))) {
+            return;
+        }
+        preventDefault(event);
+        outdent();
     }
 
     const { focusedInput } = context.get();
@@ -218,7 +218,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 )})"
                                 {disabled}
                                 flipX={rtl}
-                                on:click={outdentListItem}
+                                on:click={outdent}
                                 --border-left-radius="5px"
                                 --border-right-radius="0px"
                             >
@@ -231,7 +231,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                                 )})"
                                 {disabled}
                                 flipX={rtl}
-                                on:click={indentListItem}
+                                on:click={indent}
                                 --border-right-radius="5px"
                             >
                                 <Icon icon={indentIcon} />

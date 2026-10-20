@@ -144,3 +144,7 @@ const isListItem = (element: Element): element is HTMLLIElement =>
     window.getComputedStyle(element).display === "list-item";
 
 export const getListItem = getAnchorParent(isListItem);
+
+const isBlockquote = (element: Element): element is HTMLQuoteElement => element.tagName === "BLOCKQUOTE";
+
+export const getBlockquote = getAnchorParent(isBlockquote);
