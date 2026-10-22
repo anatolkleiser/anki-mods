@@ -30,3 +30,26 @@ test("the caret stays put when the note is reloaded after saving", async ({ edit
     await page.keyboard.type("there ");
     await expect(field).toHaveText("hello there world");
 });
+
+test("loading and reloading a note does not save it", async ({ editor: page }) => {
+    const note = await addNote(page, "hello");
+    let saves = 0;
+    page.on("response", async (resp) => {
+        if (isRpcResponse("updateNotes")(resp)) {
+            saves++;
+            // what webview.py on_operation_did_execute triggers after a save
+            await page.evaluate(() => (globalThis as any).anki.onOperationDidExecute({ noteText: true }));
+        }
+    });
+    await openInBrowserEditor(page, note);
+    await editableField(page, 0).click();
+    await page.evaluate(() => (window as any).reloadNote());
+    // longer than the save delay
+    await page.waitForTimeout(1_500);
+    expect(saves).toBe(0);
+
+    // a change is still saved, once
+    await page.keyboard.type("!");
+    await page.waitForTimeout(1_500);
+    expect(saves).toBe(1);
+});

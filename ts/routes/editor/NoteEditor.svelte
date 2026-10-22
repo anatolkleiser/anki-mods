@@ -517,8 +517,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     )}`,
                 );
             } else {
+                const transformed = await transformContentBeforeSave(content);
+                // Loading a note sets the field stores too. Saving unchanged
+                // content would make Qt report a change, which reloads the note
+                // and can schedule yet another save.
+                if (transformed === note!.fields[index]) {
+                    return;
+                }
                 bridgeCommand(`key:${index}`);
-                note!.fields[index] = await transformContentBeforeSave(content);
+                note!.fields[index] = transformed;
                 await updateCurrentNote();
                 await updateDuplicateDisplay();
             }
@@ -1344,16 +1351,23 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         if (loadController) {
             loadController.abort();
         }
-        loadController = new AbortController();
-        await loadNoteInner(
-            initialLoadArgs
-                ? ({
-                      ...initialLoadArgs,
-                      ...args,
-                  } as LoadNoteArgs)
-                : (args as LoadNoteArgs),
-            loadController.signal,
-        );
+        const controller = (loadController = new AbortController());
+        try {
+            await loadNoteInner(
+                initialLoadArgs
+                    ? ({
+                          ...initialLoadArgs,
+                          ...args,
+                      } as LoadNoteArgs)
+                    : (args as LoadNoteArgs),
+                controller.signal,
+            );
+        } catch (error) {
+            // superseded by a newer load
+            if (!controller.signal.aborted) {
+                throw error;
+            }
+        }
     }
 
     async function reloadNote() {
