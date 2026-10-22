@@ -17,6 +17,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import type { ContentEditableAPI } from "./content-editable";
     import {
         fixRTLKeyboardNav,
+        keepFormatAfterLineBreak,
         preventBuiltinShortcuts,
         useFocusHandler,
     } from "./content-editable";
@@ -50,6 +51,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     use:setupFocusHandling
     use:preventBuiltinShortcuts
     use:fixRTLKeyboardNav
+    use:keepFormatAfterLineBreak
     use:mirrorAction={mirrorOptions}
     use:inputHandlerAction={{}}
     on:focus

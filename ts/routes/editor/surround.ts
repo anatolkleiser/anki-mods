@@ -7,12 +7,25 @@ import { registerPackage } from "@tslib/runtime-require";
 import type { Readable } from "svelte/store";
 import { derived, get } from "svelte/store";
 
+import { execCommand, queryCommandState } from "$lib/domlib/content-editable";
 import type { Matcher } from "$lib/domlib/find-above";
 import { findClosest } from "$lib/domlib/find-above";
 import type { SurroundFormat } from "$lib/domlib/surround";
 import { boolMatcher, reformat, surround, unsurround } from "$lib/domlib/surround";
 import type { TriggerItem } from "$lib/sveltelib/handler-list";
 import type { InputHandlerAPI } from "$lib/sveltelib/input-handler";
+
+/**
+ * Formats whose key is also a Chromium editing command. With a collapsed
+ * selection, Chromium formats typed text by its own typing style, which can
+ * include formatting that the elements around the caret don't have, e.g. right
+ * after Enter at the end of formatted text.
+ */
+const NATIVE_COMMANDS = ["bold", "italic", "underline", "subscript", "superscript"];
+
+function hasNativeTypingStyle(formatName: string): boolean {
+    return NATIVE_COMMANDS.includes(formatName) && queryCommandState(formatName);
+}
 
 function isValid<T>(value: T | undefined): value is T {
     return Boolean(value);
@@ -260,6 +273,15 @@ export class Surrounder<T = unknown> {
             .filter(isValid);
 
         if (range.collapsed) {
+            if (
+                !get(trigger.active)
+                && hasNativeTypingStyle(formatName)
+                && !isSurroundedInner(range, base, matcher)
+            ) {
+                // only Chromium would apply the format, so turn it off there
+                execCommand(formatName);
+                return;
+            }
             return this.#toggleTrigger(
                 base,
                 selection,
@@ -333,7 +355,10 @@ export class Surrounder<T = unknown> {
         }
 
         const isSurrounded = isSurroundedInner(range, base, boolMatcher(format));
-        return get(trigger.active) ? !isSurrounded : isSurrounded;
+        if (get(trigger.active)) {
+            return !isSurrounded;
+        }
+        return isSurrounded || (range.collapsed && hasNativeTypingStyle(formatName));
     }
 
     /**

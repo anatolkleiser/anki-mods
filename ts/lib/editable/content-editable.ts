@@ -2,12 +2,14 @@
 // License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
 import { bridgeCommand } from "@tslib/bridgecommand";
-import { getSelection } from "@tslib/cross-browser";
+import { getRange, getSelection } from "@tslib/cross-browser";
+import { elementIsBlock, nodeIsElement } from "@tslib/dom";
 import { on, preventDefault } from "@tslib/events";
 import { isApplePlatform } from "@tslib/platform";
 import { registerShortcut, registerUnmappedShortcut } from "@tslib/shortcuts";
 import type { Callback } from "@tslib/typing";
 
+import { execCommand, queryCommandState } from "$lib/domlib/content-editable";
 import type { SelectionLocation } from "$lib/domlib/location";
 import { restoreSelection, saveSelection } from "$lib/domlib/location";
 import { placeCaretAfterContent } from "$lib/domlib/place-caret";
@@ -132,6 +134,80 @@ export function useFocusHandler(): [FocusHandlerAPI, SetupFocusHandlerAction] {
 
 if (isApplePlatform()) {
     registerShortcut(() => bridgeCommand("paste"), "Control+Shift+V");
+}
+
+/** The formatting of element that Chromium can apply as typing style */
+function typingStyleCommands(element: Element): string[] {
+    const style = getComputedStyle(element);
+    const commands: string[] = [];
+    if (Number(style.fontWeight) >= 600) {
+        commands.push("bold");
+    }
+    if (style.fontStyle === "italic" || style.fontStyle === "oblique") {
+        commands.push("italic");
+    }
+    // text decoration and vertical alignment are not inherited
+    if (style.textDecorationLine.includes("underline")) {
+        commands.push("underline");
+    }
+    if (style.textDecorationLine.includes("line-through")) {
+        commands.push("strikethrough");
+    }
+    if (style.verticalAlign === "sub") {
+        commands.push("subscript");
+    } else if (style.verticalAlign === "super") {
+        commands.push("superscript");
+    }
+    return commands;
+}
+
+function isInlineContainer(node: Node | null): node is Element {
+    return Boolean(
+        node
+            && nodeIsElement(node)
+            && node.tagName !== "BR"
+            && node.hasChildNodes()
+            && !elementIsBlock(node),
+    );
+}
+
+/**
+ * When Enter is pressed at the end of formatted text, Chromium puts the line
+ * break inside the formatting elements (e.g. <b>text<br></b>), but the caret
+ * after them, and it can't be moved back inside. Whether typed text is still
+ * formatted then depends on whether Chromium remembered the formatting, so
+ * make sure it does.
+ */
+export function keepFormatAfterLineBreak(editable: HTMLElement): { destroy(): void } {
+    function onInput(event: Event): void {
+        const { inputType } = event as InputEvent;
+        if (inputType !== "insertLineBreak" && inputType !== "insertParagraph") {
+            return;
+        }
+        const selection = getSelection(editable);
+        // selection.isCollapsed is unreliable in shadow roots
+        const range = selection && getRange(selection);
+        if (!range?.collapsed || !nodeIsElement(range.startContainer)) {
+            return;
+        }
+        const commands = new Set<string>();
+        let element: Node | null = range.startContainer.childNodes[range.startOffset - 1] ?? null;
+        while (isInlineContainer(element)) {
+            typingStyleCommands(element).forEach((command) => commands.add(command));
+            const last = element.lastChild;
+            if (last && nodeIsElement(last) && last.tagName === "BR") {
+                for (const command of commands) {
+                    if (!queryCommandState(command)) {
+                        execCommand(command);
+                    }
+                }
+                return;
+            }
+            element = last;
+        }
+    }
+
+    return { destroy: on(editable, "input", onInput) };
 }
 
 export function preventBuiltinShortcuts(editable: HTMLElement): void {
