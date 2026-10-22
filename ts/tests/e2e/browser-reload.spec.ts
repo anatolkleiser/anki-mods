@@ -53,3 +53,21 @@ test("loading and reloading a note does not save it", async ({ editor: page }) =
     await page.waitForTimeout(1_500);
     expect(saves).toBe(1);
 });
+
+test("a newly shown note focuses the requested field even if loaded again", async ({ editor: page }) => {
+    const first = await addNote(page, "one");
+    const second = await addNote(page, "two");
+    await openInBrowserEditor(page, first);
+    await editableField(page, 1).click();
+
+    // what the browser does after adding a note: the first load asks for the
+    // first field, and further loads of the same note, which cancel it, don't
+    await page.evaluate(({ noteId, notetypeId }) => {
+        const args = { nid: noteId, notetypeId, initial: true };
+        (window as any).loadNote({ ...args, focusTo: 0 });
+        (window as any).loadNote({ ...args, focusTo: null });
+    }, second);
+
+    await expect(editableField(page, 0)).toHaveText("two");
+    await expect(editableField(page, 0)).toBeFocused();
+});

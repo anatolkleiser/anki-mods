@@ -116,6 +116,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import type { HistoryEntry, NotetypeIdAndModTime, SessionOptions } from "./types";
 
     let loadController: AbortController | null = null;
+    /** A field a load was asked to focus, until that load completes */
+    let pendingFocus: { nid: string; focusTo: number } | null = null;
     let initialLoadArgs: Partial<LoadNoteArgs> | null = null;
     let contextMenu: ContextMenu;
     const [onContextMenu, contextMenuItems] = setupContextMenu();
@@ -1348,6 +1350,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         if (typeof args.focusTo === "undefined") {
             args = { ...args, focusTo: focusedFieldIndex };
         }
+        const nid = String(args.nid ?? initialLoadArgs?.nid);
+        // A load of the same note that doesn't ask for a field may cancel one
+        // that does before it focused it, e.g. when the browser loads a newly
+        // added note several times.
+        if (args.focusTo === null && pendingFocus?.nid === nid) {
+            args = { ...args, focusTo: pendingFocus.focusTo };
+        }
+        pendingFocus =
+            typeof args.focusTo === "number" ? { nid, focusTo: args.focusTo } : null;
         if (loadController) {
             loadController.abort();
         }
@@ -1362,6 +1373,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                     : (args as LoadNoteArgs),
                 controller.signal,
             );
+            if (controller === loadController) {
+                pendingFocus = null;
+            }
         } catch (error) {
             // superseded by a newer load
             if (!controller.signal.aborted) {
