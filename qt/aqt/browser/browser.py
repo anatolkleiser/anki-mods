@@ -93,7 +93,7 @@ from .find_and_replace import FindAndReplaceDialog
 from .layout import BrowserLayout, QSplitterHandleEventFilter
 from .previewer import BrowserPreviewer as PreviewDialog
 from .previewer import Previewer
-from .sidebar import SidebarItemType, SidebarTreeView
+from .sidebar import SidebarItem, SidebarItemType, SidebarTreeView
 from .table import Table
 
 DELETE_ICON = "icons:delete-outline.svg"
@@ -144,8 +144,13 @@ class Browser(QMainWindow):
         self.focusTo: int | None = None
         # note created by add_empty_note(); removed again if left empty
         self._new_empty_note_id: NoteId | None = None
+        # note whose first field gets focus when it is next shown in the editor;
+        # unlike focusTo, not used up by an earlier, deferred editor load
+        self._focus_first_field_nid: NoteId | None = None
         # deck the current search is limited to, if any; new notes go there
         self.add_deck_id: DeckId | None = None
+        # sidebar item to select once the sidebar has loaded
+        self._sidebar_item_to_restore: SidebarItem | None = None
         self._previewer: Previewer | None = None
         self._card_info = BrowserCardInfo(self.mw)
         self._closeEventHasCleanedUp = False
@@ -321,7 +326,7 @@ class Browser(QMainWindow):
         if (card_id := self._reusable_empty_card_id(deck_id)) is not None:
             # the previously added note is still empty; removing it would make
             # the editor reload a deleted note, so focus it again instead
-            self.focusTo = 0
+            self._focus_first_field_nid = self._new_empty_note_id
             self.table.select_single_card(card_id)
             return
         notetype_id = self.get_active_note_type_id() or NotetypeId(
@@ -341,7 +346,7 @@ class Browser(QMainWindow):
             self.search_for(search, prompt=self.current_search())
             # the extended search still belongs to the deck
             self._set_add_deck(deck_id)
-            self.focusTo = 0
+            self._focus_first_field_nid = note.id
             self._new_empty_note_id = note.id
             self.table.select_single_card(note.card_ids()[0])
 
@@ -499,6 +504,7 @@ class Browser(QMainWindow):
     def _closeWindow(self) -> None:
         assert self.editor is not None
 
+        self._save_last_state()
         self._remove_new_note_if_empty(parent=self.mw)
         self._cleanup_preview()
         self._card_info.close()
@@ -564,11 +570,119 @@ class Browser(QMainWindow):
         )
         if search is not None:
             self.search_for_terms(*search)
+        elif card is None and self._restore_last_state():
+            self.form.searchEdit.setFocus()
+            if card_id := self._last_card_id():
+                self.table.select_single_card(card_id)
+            return
         else:
             self._default_search(card)
         self.form.searchEdit.setFocus()
         if card:
             self.table.select_single_card(card.id)
+
+    # sidebar items that can be found again by type and id or name
+    _RESTORABLE_SIDEBAR_TYPES = (
+        SidebarItemType.SAVED_SEARCH,
+        SidebarItemType.TODAY,
+        SidebarItemType.FLAG,
+        SidebarItemType.FLAG_NONE,
+        SidebarItemType.CARD_STATE,
+        SidebarItemType.DECK_CURRENT,
+        SidebarItemType.DECK,
+        SidebarItemType.NOTETYPE,
+        SidebarItemType.TAG_NONE,
+        SidebarItemType.TAG,
+    )
+
+    def _save_last_state(self) -> None:
+        """Remember the search, sidebar item and card, so the next browser
+        opened without a card or search starts where this one left off."""
+        assert self.mw.pm.profile is not None
+        state: dict[str, Any] = {
+            "search": self._lastSearchTxt,
+            "prompt": self.current_search(),
+            "deck": self.add_deck_id,
+            "card": self.card.id if self.card else None,
+        }
+        selected = self.sidebar._selected_items() if self.sidebar.model() else []
+        if (
+            len(selected) == 1
+            and selected[0].item_type in self._RESTORABLE_SIDEBAR_TYPES
+        ):
+            item = selected[0]
+            state["sidebar"] = {
+                "type": item.item_type.name,
+                "id": item.id,
+                "name": item.name,
+                "prefix": item.name_prefix,
+            }
+        self.mw.pm.profile["browserLastState"] = state
+
+    def _restore_last_state(self) -> bool:
+        """Repeat the search saved by _save_last_state(), if any."""
+        assert self.mw.pm.profile is not None
+        state = self.mw.pm.profile.get("browserLastState")
+        if not isinstance(state, dict) or not state.get("search"):
+            return False
+        deck_id = state.get("deck")
+        if deck_id is not None and self.col.decks.get(deck_id, default=False) is None:
+            return False
+        sidebar = state.get("sidebar")
+        if sidebar:
+            item_type = SidebarItemType[sidebar["type"]]
+            if (
+                item_type == SidebarItemType.DECK
+                and self.col.decks.get(sidebar["id"], default=False) is None
+            ):
+                return False
+            self._sidebar_item_to_restore = SidebarItem(
+                name=sidebar["name"],
+                icon="",
+                item_type=item_type,
+                id=sidebar["id"],
+                name_prefix=sidebar["prefix"],
+            )
+        self.search_for(state["search"], state.get("prompt"))
+        # the sidebar isn't loaded yet, so the deck can't be found through it
+        self._set_add_deck(DeckId(deck_id) if deck_id is not None else None)
+        return True
+
+    def _remember_card_in_deck(self, deck_id: DeckId, card_id: CardId) -> None:
+        assert self.mw.pm.profile is not None
+        cards = self.mw.pm.profile.setdefault("browserLastCardPerDeck", {})
+        cards[str(deck_id)] = card_id
+
+    def _last_card_id_in_deck(self, deck_id: DeckId) -> CardId | None:
+        "The card last opened while the search showed deck_id, if it still exists."
+        assert self.mw.pm.profile is not None
+        card_id = self.mw.pm.profile.get("browserLastCardPerDeck", {}).get(str(deck_id))
+        if card_id is None:
+            return None
+        try:
+            card = self.col.get_card(CardId(card_id))
+        except NotFoundError:
+            return None
+        # it may have been moved to another deck since
+        deck_ids = self.col.decks.deck_and_child_ids(deck_id)
+        if card.did in deck_ids or card.odid in deck_ids:
+            return card.id
+        return None
+
+    def _existing_card_id(self, card_id: int | None) -> CardId | None:
+        if card_id is None:
+            return None
+        try:
+            return self.col.get_card(CardId(card_id)).id
+        except NotFoundError:
+            return None
+
+    def _last_card_id(self) -> CardId | None:
+        "The card saved by _save_last_state(), if it still exists."
+        assert self.mw.pm.profile is not None
+        return self._existing_card_id(
+            self.mw.pm.profile.get("browserLastState", {}).get("card")
+        )
 
     # search triggered by user
     @ensure_editor_saved
@@ -596,6 +710,10 @@ class Browser(QMainWindow):
         self.form.searchEdit.setCurrentIndex(-1)
         self._line_edit().setText(prompt)
         self.search()
+        if self.add_deck_id is not None and (
+            card_id := self._last_card_id_in_deck(self.add_deck_id)
+        ):
+            self.table.select_single_card(card_id)
 
     def _set_add_deck(self, deck_id: DeckId | None) -> None:
         self.add_deck_id = deck_id
@@ -762,9 +880,15 @@ class Browser(QMainWindow):
         if self.singleCard:
             assert self.card is not None
 
-            self.editor.set_note(self.card.note(), focusTo=self.focusTo)
+            focus_to = self.focusTo
+            if self.card.nid == self._focus_first_field_nid:
+                focus_to = 0
+                self._focus_first_field_nid = None
+            self.editor.set_note(self.card.note(), focusTo=focus_to)
             self.focusTo = None
             self.editor.card = self.card
+            if self.add_deck_id is not None:
+                self._remember_card_in_deck(self.add_deck_id, self.card.id)
         else:
             self.editor.set_note(None)
         if not (self.card and self.card.nid == self._new_empty_note_id):
@@ -901,7 +1025,12 @@ class Browser(QMainWindow):
 
         # schedule sidebar to refresh after browser window has loaded, so the
         # UI is more responsive
-        self.mw.progress.timer(10, self.sidebar.refresh, False, parent=self.sidebar)
+        self.mw.progress.timer(
+            10,
+            lambda: self.sidebar.refresh(self._sidebar_item_to_restore),
+            False,
+            parent=self.sidebar,
+        )
 
     def showSidebar(self, show: bool = True) -> None:
         self.sidebarDockWidget.setVisible(show)
