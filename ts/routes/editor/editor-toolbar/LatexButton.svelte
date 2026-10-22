@@ -67,9 +67,9 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     type LatexItem = [() => void, string, string];
 
     const dropdownItems: LatexItem[] = [
-        [onMathjaxInline, "Control+M, M", tr.editingMathjaxInline()],
-        [onMathjaxBlock, "Control+M, E", tr.editingMathjaxBlock()],
-        [onMathjaxChemistry, "Control+M, C", tr.editingMathjaxChemistry()],
+        [onMathjaxInline, "Control+Alt+M, M", tr.editingMathjaxInline()],
+        [onMathjaxBlock, "Control+Alt+M, E", tr.editingMathjaxBlock()],
+        [onMathjaxChemistry, "Control+Alt+M, C", tr.editingMathjaxChemistry()],
         [onLatex, "Control+T, T", tr.editingLatex()],
         [onLatexEquation, "Control+T, E", tr.editingLatexEquation()],
         [onLatexMathEnv, "Control+T, M", tr.editingLatexMathEnv()],

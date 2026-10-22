@@ -4,7 +4,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <script lang="ts">
     import * as tr from "@generated/ftl";
-    import { getBlockquote, getListItem } from "@tslib/dom";
+    import { getListItem } from "@tslib/dom";
     import { preventDefault } from "@tslib/events";
     import { getPlatformString, registerShortcut } from "@tslib/shortcuts";
     import { onMount } from "svelte";
@@ -42,19 +42,18 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     // outside of lists, Chromium indents by wrapping the paragraph in a
     // margin-only <blockquote>, and outdent unwraps it again
-    const outdentKeyCombination = "Control+Shift+,";
+    const outdentKeyCombination = "Control+Shift+M";
     function outdent() {
         execCommand("outdent");
     }
 
-    const indentKeyCombination = "Control+Shift+.";
+    const indentKeyCombination = "Control+M";
     function indent() {
         execCommand("indent");
     }
 
     onMount(() => {
         registerShortcut(onIndentKey, indentKeyCombination);
-        registerShortcut(onIndentKey, "Tab");
         registerShortcut((event: KeyboardEvent) => {
             if (disabled) {
                 return;
@@ -62,7 +61,10 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             preventDefault(event);
             outdent();
         }, outdentKeyCombination);
-        registerShortcut(outdentWithShiftTab, "Shift+Tab");
+        // inside a list, Tab/Shift+Tab change the indentation; elsewhere they
+        // keep moving between fields
+        registerShortcut(indentWithTab("indent"), "Tab");
+        registerShortcut(indentWithTab("outdent"), "Shift+Tab");
         registerShortcut((event: KeyboardEvent) => {
             if (disabled) {
                 return;
@@ -80,15 +82,15 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         indent();
     }
 
-    // when there is nothing to outdent, Shift+Tab keeps moving to the
-    // previous field
-    function outdentWithShiftTab(event: KeyboardEvent): void {
-        const root = document.activeElement?.shadowRoot;
-        if (disabled || !root || !(getListItem(root) || getBlockquote(root))) {
-            return;
-        }
-        preventDefault(event);
-        outdent();
+    function indentWithTab(command: "indent" | "outdent") {
+        return (event: KeyboardEvent): void => {
+            const root = document.activeElement?.shadowRoot;
+            if (disabled || !root || !getListItem(root)) {
+                return;
+            }
+            preventDefault(event);
+            execCommand(command);
+        };
     }
 
     const { focusedInput } = context.get();

@@ -122,21 +122,22 @@ Ctrl+Return save. Alt+1…9 cloze number is fixed.
 
 ### Editor ✓ (TypeScript, add/edit/browser)
 
-| Key                         | Action                             | Key                             | Action                      |
-| --------------------------- | ---------------------------------- | ------------------------------- | --------------------------- |
-| Ctrl+B / I / U              | Bold / italic / underline          | Ctrl+= / Ctrl+Shift+=           | Super-/subscript            |
-| Ctrl+R                      | Remove formatting                  | F7 / F8                         | Text colour / change colour |
-| Ctrl+, / Ctrl+.             | Bulleted / numbered list           | Ctrl+Shift+L                    | Toggle bulleted list        |
-| Ctrl+Shift+. / Ctrl+Shift+, | Indent / outdent                   | Ctrl+Shift+C / Ctrl+Alt+Shift+C | Cloze / same cloze          |
-| Ctrl+M, M / E / C           | MathJax inline / block / chemistry | Ctrl+T, T / E / M               | LaTeX / equation / math env |
-| F3 / F5                     | Attach / record audio              | Ctrl+Shift+X                    | HTML editor                 |
-| F9 / Shift+F9               | Sticky field / all fields          | Ctrl+Shift+T                    | Tags                        |
-| Ctrl+L                      | Cards…                             | Ctrl+N / Ctrl+D                 | Note type / deck chooser    |
-| Ctrl+Shift+P                | Preview                            | Ctrl+Enter                      | Add / close                 |
-| Ctrl+H (Ctrl+Shift+H mac)   | History                            | F1                              | Help                        |
+| Key                       | Action                             | Key                             | Action                      |
+| ------------------------- | ---------------------------------- | ------------------------------- | --------------------------- |
+| Ctrl+B / I / U            | Bold / italic / underline          | Ctrl+= / Ctrl+Shift+=           | Super-/subscript            |
+| Ctrl+R                    | Remove formatting                  | F7 / F8                         | Text colour / change colour |
+| Ctrl+, / Ctrl+.           | Bulleted / numbered list           | Ctrl+Shift+L                    | Toggle bulleted list        |
+| Ctrl+M / Ctrl+Shift+M     | Indent / outdent                   | Ctrl+Shift+C / Ctrl+Alt+Shift+C | Cloze / same cloze          |
+| Ctrl+Alt+M, M / E / C     | MathJax inline / block / chemistry | Ctrl+T, T / E / M               | LaTeX / equation / math env |
+| F3 / F5                   | Attach / record audio              | Ctrl+Shift+X                    | HTML editor                 |
+| F9 / Shift+F9             | Sticky field / all fields          | Ctrl+Shift+T                    | Tags                        |
+| Ctrl+L                    | Cards…                             | Ctrl+N / Ctrl+D                 | Note type / deck chooser    |
+| Ctrl+Shift+P              | Preview                            | Ctrl+Enter                      | Add / close                 |
+| Ctrl+H (Ctrl+Shift+H mac) | History                            | F1                              | Help                        |
 
-Fixed: Tab/Shift+Tab indent inside lists. In the tag editor, Ctrl+A, Ctrl+C
-and Backspace act on the selected tags. In the MathJax editor, Enter and
+Inside a list, Tab/Shift+Tab also indent/outdent; elsewhere they move
+between fields. Changing indent/outdent unbinds Tab/Shift+Tab. In the tag editor, Ctrl+A, Ctrl+C and Backspace act on the
+selected tags. In the MathJax editor, Enter and
 Shift+Enter accept or add a line, and Esc closes it.
 
 ### Not configurable (dialog-local)

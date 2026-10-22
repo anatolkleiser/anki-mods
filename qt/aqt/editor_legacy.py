@@ -1409,12 +1409,12 @@ require("anki/ui").loaded.then(() => require("anki/NoteEditor").instances[0].too
         m = QMenu(self.mw)
 
         for text, handler, shortcut in (
-            (tr.editing_mathjax_inline(), self.insertMathjaxInline, "Ctrl+M, M"),
-            (tr.editing_mathjax_block(), self.insertMathjaxBlock, "Ctrl+M, E"),
+            (tr.editing_mathjax_inline(), self.insertMathjaxInline, "Ctrl+Alt+M, M"),
+            (tr.editing_mathjax_block(), self.insertMathjaxBlock, "Ctrl+Alt+M, E"),
             (
                 tr.editing_mathjax_chemistry(),
                 self.insertMathjaxChemistry,
-                "Ctrl+M, C",
+                "Ctrl+Alt+M, C",
             ),
             (tr.editing_latex(), self.insertLatex, "Ctrl+T, T"),
             (tr.editing_latex_equation(), self.insertLatexEqn, "Ctrl+T, E"),

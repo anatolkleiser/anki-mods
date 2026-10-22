@@ -100,12 +100,12 @@ def test_editor_overrides_contains_only_changed_editor_shortcuts(
 
 
 def test_indent_keys_include_tab_by_default(mw: MagicMock) -> None:
-    assert shortcuts.keys("editor.indent") == ["Ctrl+Shift+.", "Tab"]
-    assert shortcuts.keys("editor.outdent") == ["Ctrl+Shift+,", "Shift+Tab"]
+    assert shortcuts.keys("editor.indent") == ["Ctrl+M", "Tab"]
+    assert shortcuts.keys("editor.outdent") == ["Ctrl+Shift+M", "Shift+Tab"]
     assert shortcuts.editor_overrides() == {}
 
 
 def test_editor_overrides_disables_tab_when_indent_changed(mw: MagicMock) -> None:
     shortcuts.set_keys("editor.indent", "Ctrl+]")
 
-    assert shortcuts.editor_overrides() == {"Control+Shift+.": "Control+]", "Tab": ""}
+    assert shortcuts.editor_overrides() == {"Control+M": "Control+]", "Tab": ""}
