@@ -175,6 +175,21 @@ def web_to_qt(combination: str) -> str:
     )
 
 
+def editor_keys(excluding: Iterable[str] = ()) -> set[str]:
+    """The first key combination of each active editor shortcut, as portable
+    QKeySequence text, leaving out the shortcut ids in `excluding`. Window
+    shortcuts with these keys would take precedence over the editor."""
+    excluded = set(excluding)
+    return {
+        QKeySequence(k.split(", ")[0]).toString(
+            QKeySequence.SequenceFormat.PortableText
+        )
+        for sc in _shortcuts.values()
+        if sc.context == ShortcutContext.EDITOR and sc.id not in excluded
+        for k in keys(sc.id)
+    }
+
+
 def editor_overrides() -> dict[str, str]:
     """Changed editor shortcuts, keyed by their default key combination.
     Additional default combinations are disabled once a shortcut is changed."""
@@ -450,11 +465,17 @@ def _register_builtin() -> None:
     )
     add("clayout.save", C.CARD_LAYOUT, tr.actions_save, "Ctrl+Return")
 
-    # inside a list, Tab/Shift+Tab also change the indentation
-    editor_extra_keys = {"indent": ("Tab",), "outdent": ("Shift+Tab",)}
+    # further keys: inside a list, Tab/Shift+Tab also change the indentation
+    editor_extra_keys = {
+        "indent": ("Tab",),
+        "outdent": ("Shift+Tab",),
+        "redo": ("Control+Y",),
+    }
 
     # editor (in the add, edit and browser windows)
     for id, label, web in (
+        ("undo", tr.undo_undo, "Control+Z"),
+        ("redo", tr.undo_redo, "Control+Shift+Z"),
         ("bold", tr.editing_bold_text, "Control+B"),
         ("italic", tr.editing_italic_text, "Control+I"),
         ("underline", tr.editing_underline_text, "Control+U"),

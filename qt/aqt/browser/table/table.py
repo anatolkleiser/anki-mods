@@ -13,6 +13,7 @@ import aqt.shortcuts
 from anki.cards import Card, CardId
 from anki.collection import Collection, Config, OpChanges
 from anki.consts import *
+from anki.errors import NotFoundError
 from anki.notes import Note, NoteId
 from aqt import gui_hooks
 from aqt.browser.table import Columns, ItemId, SearchContext
@@ -140,6 +141,13 @@ class Table:
             QItemSelectionModel.SelectionFlag.Deselect
             | QItemSelectionModel.SelectionFlag.Rows,
         )
+
+    def has_card(self, card_id: CardId) -> bool:
+        "True if the card, or its note in notes mode, is in the results."
+        try:
+            return self._model.get_card_row(card_id) is not None
+        except NotFoundError:
+            return False
 
     def select_single_card(
         self, card_id: CardId, scroll_even_if_visible: bool = True

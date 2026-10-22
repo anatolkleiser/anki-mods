@@ -151,6 +151,8 @@ class Browser(QMainWindow):
         self.add_deck_id: DeckId | None = None
         # sidebar item to select once the sidebar has loaded
         self._sidebar_item_to_restore: SidebarItem | None = None
+        # shortcuts taken from window actions while the editor is focused
+        self._released_shortcuts: dict[QAction, list[QKeySequence]] = {}
         self._previewer: Previewer | None = None
         self._card_info = BrowserCardInfo(self.mw)
         self._closeEventHasCleanedUp = False
@@ -230,21 +232,54 @@ class Browser(QMainWindow):
             self._renderPreview()
 
     def on_focus_change(self, new: QWidget | None, old: QWidget | None) -> None:
-        # the editor uses Ctrl+Shift+L to make a list, so the window must not
-        # claim it while the editor is focused
         editor_focused = (
             new is not None
             and self.editor is not None
             and self.editor.web is not None
             and (new is self.editor.web or self.editor.web.isAncestorOf(new))
         )
-        self.form.actionCardList.setShortcut(
-            QKeySequence() if editor_focused else self._card_list_shortcut
-        )
+        self._release_editor_shortcuts(editor_focused)
         if current_window() == self:
             self.setUpdatesEnabled(True)
             self.table.redraw_cells()
             self.sidebar.refresh_if_needed()
+
+    # editor shortcuts that only work in the Add window, or do the same as the
+    # browser's own shortcut with that key
+    _EDITOR_SHORTCUTS_LEFT_TO_WINDOW = (
+        "editor.notetype",
+        "editor.deck",
+        "editor.add_or_close",
+        "editor.history",
+        "editor.preview",
+        "editor.help",
+    )
+
+    def _release_editor_shortcuts(self, editor_focused: bool) -> None:
+        """Window shortcuts take precedence over the editor's, so while the
+        editor is focused, actions give up keys it uses (e.g. Ctrl+Z for the
+        field's undo, Ctrl+Shift+M to outdent)."""
+        if not editor_focused:
+            for action, original in self._released_shortcuts.items():
+                action.setShortcuts(original)
+            self._released_shortcuts.clear()
+            return
+        editor_keys = aqt.shortcuts.editor_keys(
+            excluding=self._EDITOR_SHORTCUTS_LEFT_TO_WINDOW
+        )
+        for action in self.findChildren(QAction):
+            if action in self._released_shortcuts:
+                continue
+            original = action.shortcuts()
+            kept = [
+                s
+                for s in original
+                if s.toString(QKeySequence.SequenceFormat.PortableText)
+                not in editor_keys
+            ]
+            if len(kept) < len(original):
+                self._released_shortcuts[action] = original
+                action.setShortcuts(kept)
 
     def set_layout(self, mode: BrowserLayout, init: bool = False) -> None:
         self.mw.pm.set_browser_layout(mode)
@@ -462,7 +497,6 @@ class Browser(QMainWindow):
         qconnect(f.actionSidebar.triggered, self.focusSidebar)
         qconnect(f.actionToggleSidebar.triggered, self.toggle_sidebar)
         qconnect(f.actionCardList.triggered, self.onCardList)
-        self._card_list_shortcut = f.actionCardList.shortcut()
 
         # help
         qconnect(f.actionGuide.triggered, self.onHelp)
@@ -648,26 +682,44 @@ class Browser(QMainWindow):
         self._set_add_deck(DeckId(deck_id) if deck_id is not None else None)
         return True
 
-    def _remember_card_in_deck(self, deck_id: DeckId, card_id: CardId) -> None:
-        assert self.mw.pm.profile is not None
-        cards = self.mw.pm.profile.setdefault("browserLastCardPerDeck", {})
-        cards[str(deck_id)] = card_id
+    # most entries kept by _remember_card()
+    _MAX_REMEMBERED_CARDS = 500
 
-    def _last_card_id_in_deck(self, deck_id: DeckId) -> CardId | None:
-        "The card last opened while the search showed deck_id, if it still exists."
+    def _card_memory_key(self) -> str | None:
+        """What the current card is remembered for: the deck new notes go to,
+        or the sidebar item whose search is shown."""
+        if self.add_deck_id is not None:
+            return f"deck:{self.add_deck_id}"
+        selected = self.sidebar._selected_items() if self.sidebar.model() else []
+        if len(selected) != 1 or selected[0].search_node is None:
+            return None
+        search = self.col.build_search_string(selected[0].search_node)
+        return search if search == self._lastSearchTxt else None
+
+    def _remembered_cards(self) -> dict[str, int]:
         assert self.mw.pm.profile is not None
-        card_id = self.mw.pm.profile.get("browserLastCardPerDeck", {}).get(str(deck_id))
-        if card_id is None:
+        cards = self.mw.pm.profile.setdefault("browserLastCardPerSearch", {})
+        # cards remembered per deck id by earlier versions
+        for deck_id, card_id in self.mw.pm.profile.pop(
+            "browserLastCardPerDeck", {}
+        ).items():
+            cards.setdefault(f"deck:{deck_id}", card_id)
+        return cards
+
+    def _remember_card(self, key: str, card_id: CardId) -> None:
+        cards = self._remembered_cards()
+        # most recently used last
+        cards.pop(key, None)
+        cards[key] = card_id
+        while len(cards) > self._MAX_REMEMBERED_CARDS:
+            del cards[next(iter(cards))]
+
+    def _remembered_card_id(self, key: str) -> CardId | None:
+        "The card last opened for key, if it is in the current results."
+        card_id = self._remembered_cards().get(key)
+        if card_id is None or not self.table.has_card(CardId(card_id)):
             return None
-        try:
-            card = self.col.get_card(CardId(card_id))
-        except NotFoundError:
-            return None
-        # it may have been moved to another deck since
-        deck_ids = self.col.decks.deck_and_child_ids(deck_id)
-        if card.did in deck_ids or card.odid in deck_ids:
-            return card.id
-        return None
+        return CardId(card_id)
 
     def _existing_card_id(self, card_id: int | None) -> CardId | None:
         if card_id is None:
@@ -710,8 +762,8 @@ class Browser(QMainWindow):
         self.form.searchEdit.setCurrentIndex(-1)
         self._line_edit().setText(prompt)
         self.search()
-        if self.add_deck_id is not None and (
-            card_id := self._last_card_id_in_deck(self.add_deck_id)
+        if (key := self._card_memory_key()) and (
+            card_id := self._remembered_card_id(key)
         ):
             self.table.select_single_card(card_id)
 
@@ -887,8 +939,8 @@ class Browser(QMainWindow):
             self.editor.set_note(self.card.note(), focusTo=focus_to)
             self.focusTo = None
             self.editor.card = self.card
-            if self.add_deck_id is not None:
-                self._remember_card_in_deck(self.add_deck_id, self.card.id)
+            if key := self._card_memory_key():
+                self._remember_card(key, self.card.id)
         else:
             self.editor.set_note(None)
         if not (self.card and self.card.nid == self._new_empty_note_id):
