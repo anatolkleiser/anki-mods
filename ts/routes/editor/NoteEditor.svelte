@@ -488,21 +488,52 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         return content;
     }
 
+    // saves of the current note that have not completed yet
+    const pendingNoteSaves = new Set<Promise<unknown>>();
+
     async function updateCurrentNote() {
         if (mode !== "add") {
+            const save = updateNotes(
+                {
+                    notes: [note!],
+                    skipUndoEntry: false,
+                },
+                { alertOnError: false },
+            );
+            pendingNoteSaves.add(save);
             try {
-                await updateNotes(
-                    {
-                        notes: [note!],
-                        skipUndoEntry: false,
-                    },
-                    { alertOnError: false },
-                );
+                await save;
             } catch {
                 // Note deleted
                 return;
+            } finally {
+                pendingNoteSaves.delete(save);
             }
         }
+    }
+
+    /** Whether the collection already holds the note as this editor last saved it. */
+    async function noteIsUpToDate(): Promise<boolean> {
+        while (pendingNoteSaves.size) {
+            await Promise.allSettled(pendingNoteSaves);
+        }
+        let stored: Note;
+        try {
+            stored = await getNote({ nid: note!.id }, { alertOnError: false });
+        } catch {
+            return false;
+        }
+        if (pendingNoteSaves.size) {
+            // a newer save started meanwhile, and will be checked when it is reported
+            return true;
+        }
+        const sameItems = (a: string[], b: string[]) =>
+            a.length === b.length && a.every((item, i) => item === b[i]);
+        return (
+            stored.notetypeId === note!.notetypeId &&
+            sameItems(stored.fields, note!.fields) &&
+            sameItems(stored.tags, note!.tags)
+        );
     }
 
     async function updateField(index: number, content: string): Promise<void> {
@@ -1414,7 +1445,11 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             loadNote({ copyFromNote: note });
             lastAddedNote = null;
         } else if (mode !== "add" && changes.noteText) {
-            reloadNote();
+            // Our own field saves are reported back to us too. Reloading for them
+            // would move the focus and caret, and drop any text typed since.
+            if (!note || !(await noteIsUpToDate())) {
+                await reloadNote();
+            }
         }
     }
 

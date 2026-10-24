@@ -3,17 +3,16 @@
 
 import type { OpChanges } from "@generated/anki/collection_pb";
 
-type OperationHandler = (changes: Partial<OpChanges>) => void;
+type OperationHandler = (changes: Partial<OpChanges>) => void | Promise<void>;
 const handlers: OperationHandler[] = [];
 
-export function registerOperationHandler(handler: (changes: Partial<OpChanges>) => void): void {
+export function registerOperationHandler(handler: OperationHandler): void {
     handlers.push(handler);
 }
 
-function onOperationDidExecute(changes: Partial<OpChanges>): void {
-    for (const handler of handlers) {
-        handler(changes);
-    }
+/** Resolves once every handler has finished reacting to the changes. */
+async function onOperationDidExecute(changes: Partial<OpChanges>): Promise<void> {
+    await Promise.all(handlers.map((handler) => handler(changes)));
 }
 
 globalThis.anki = globalThis.anki || {};
