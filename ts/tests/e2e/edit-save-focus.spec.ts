@@ -89,9 +89,10 @@ test("a change made elsewhere is still loaded", async ({ page }) => {
     await expect(editableField(page, 0)).toHaveText("front");
 
     const note = Note.fromBinary(await callRpc(page, "getNote", new NoteId({ nid })));
-    note.fields = ["changed elsewhere", ""];
+    // change a field other than the focused one
+    note.fields = ["front", "changed elsewhere"];
     await callRpc(page, "updateNotes", new UpdateNotesRequest({ notes: [note] }));
     await reportNoteTextChange(page);
 
-    await expect(editableField(page, 0)).toHaveText("changed elsewhere");
+    await expect(editableField(page, 1)).toHaveText("changed elsewhere");
 });
