@@ -102,6 +102,7 @@ message Deck {
         RETRIEVABILITY_ASCENDING = 8;
         RETRIEVABILITY_DESCENDING = 9;
         RELATIVE_OVERDUENESS = 10;
+        CARD_ORDER = 11;
       }
 
       string search = 1;

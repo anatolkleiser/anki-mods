@@ -39,6 +39,7 @@ pub enum Column {
     Ease,
     #[strum(serialize = "cardLapses")]
     Lapses,
+    CardOrder,
     #[strum(serialize = "cardIvl")]
     Interval,
     #[strum(serialize = "noteCrt")]
@@ -163,6 +164,7 @@ impl Column {
             Self::Ease => tr.browsing_ease(),
             Self::Interval => tr.browsing_interval(),
             Self::Lapses => tr.scheduling_lapses(),
+            Self::CardOrder => tr.browsing_card_order(),
             Self::NoteCreation => tr.browsing_created(),
             Self::NoteMod => tr.search_note_modified(),
             Self::Notetype => tr.card_stats_note_type(),
@@ -221,9 +223,11 @@ impl Column {
         use anki_proto::search::browser_columns::Sorting;
         match self {
             Column::Question | Column::Answer | Column::Custom => Sorting::None,
-            Column::SortField | Column::Tags | Column::Notetype | Column::Deck => {
-                Sorting::Ascending
-            }
+            Column::SortField
+            | Column::Tags
+            | Column::Notetype
+            | Column::Deck
+            | Column::CardOrder => Sorting::Ascending,
             Column::CardMod
             | Column::Cards
             | Column::Due
@@ -433,6 +437,7 @@ impl RowContext {
             Column::Ease => self.ease_str(),
             Column::Interval => self.interval_str(),
             Column::Lapses => self.cards.iter().map(|c| c.lapses).sum::<u32>().to_string(),
+            Column::CardOrder => self.card_order_str(),
             Column::CardMod => self.card_mod_str(),
             Column::Reps => self.cards.iter().map(|c| c.reps).sum::<u32>().to_string(),
             Column::Cards => self.cards_str()?,
@@ -447,6 +452,16 @@ impl RowContext {
             Column::Retrievability => self.fsrs_retrievability_str(),
             Column::Custom => "".to_string(),
         })
+    }
+
+    /// In notes mode, the earliest of the note's cards.
+    fn card_order_str(&self) -> String {
+        self.cards
+            .iter()
+            .filter_map(|c| c.order_index())
+            .min()
+            .map(|index| index.to_string())
+            .unwrap_or_default()
     }
 
     fn card_original_position(&self) -> String {

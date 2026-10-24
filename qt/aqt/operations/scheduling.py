@@ -208,6 +208,30 @@ def reposition_new_cards(
     )
 
 
+def set_deck_card_order_enabled(
+    *, parent: QWidget, deck_id: DeckId, enabled: bool
+) -> CollectionOp[OpChanges]:
+    return CollectionOp(
+        parent, lambda col: col.sched.set_deck_card_order_enabled(deck_id, enabled)
+    )
+
+
+def move_cards_in_deck_order(
+    *,
+    parent: QWidget,
+    deck_id: DeckId,
+    card_ids: Sequence[CardId],
+    target: CardId,
+    insert_after: bool,
+) -> CollectionOp[OpChanges]:
+    return CollectionOp(
+        parent,
+        lambda col: col.sched.move_cards_in_deck_order(
+            deck_id, card_ids, target, insert_after
+        ),
+    )
+
+
 def suspend_cards(
     *,
     parent: QWidget,

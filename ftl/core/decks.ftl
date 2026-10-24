@@ -59,6 +59,8 @@ decks-oldest-seen-first = Oldest seen first
 decks-random = Random
 # Combobox entry: Sort the cards by relative overdueness, in descending order (most overdue to least overdue)
 decks-relative-overdueness = Relative overdueness
+# Combobox entry: Sort the cards by the custom order the user gave them in the browser
+decks-card-order = Custom order
 
 ## These strings are no longer used - you do not need to translate them if they
 ## are not already translated.

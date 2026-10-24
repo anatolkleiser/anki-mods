@@ -3,6 +3,7 @@
 
 use crate::decks::FilteredSearchOrder;
 use crate::decks::FilteredSearchTerm;
+use crate::scheduler::card_order::CARD_ORDER_SQL;
 use crate::scheduler::timing::SchedTimingToday;
 use crate::storage::sqlite::SqlSortOrder;
 
@@ -23,6 +24,7 @@ pub(crate) fn order_and_limit_for_search(
         FilteredSearchOrder::Lapses => "lapses desc",
         FilteredSearchOrder::Added => "n.id, c.ord",
         FilteredSearchOrder::ReverseAdded => "n.id desc, c.ord asc",
+        FilteredSearchOrder::CardOrder => CARD_ORDER_SQL,
         FilteredSearchOrder::Due => {
             let current_timestamp = timing.now.0;
             temp_string = format!(

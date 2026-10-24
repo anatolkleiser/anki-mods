@@ -212,6 +212,15 @@ browsing-reparented-decks =
        *[other] Renamed { $count } decks.
     }
 browsing-sidebar-card-state-review = Review
+# Column header and switch label for a custom, user-defined order of the cards in a deck.
+browsing-card-order = Order
+# Switch label shown when the deck has no custom card order.
+browsing-card-order-off = Unordered
+browsing-card-order-tooltip = Keep the cards of this deck in a custom order. Hold { $key } and drag rows to reorder them.
+browsing-card-order-needs-deck = Show a single deck to give its cards a custom order.
+browsing-card-order-sort-first = Sort by the Order column to reorder cards.
+# Context menu entry: play the deck's cards in their custom order, starting with the selected card.
+browsing-learn-in-order-from-here = Learn in Order from Here
 
 ## NO NEED TO TRANSLATE. This text is no longer used by Anki, and will be removed in the future.
 

@@ -531,6 +531,14 @@ class DeckManager(DeprecatedNamesMixin):
     def is_filtered(self, did: DeckId | str) -> bool:
         return bool(self.get(did)["dyn"])
 
+    # Custom card order
+    ##########################################################################
+
+    def card_order_enabled(self, did: DeckId) -> bool:
+        "True if the cards of the deck have a custom order."
+        deck = self.get(did, default=False)
+        return bool(deck and not deck["dyn"] and deck.get("cardOrder"))
+
     # Legacy
     #############
 

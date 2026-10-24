@@ -207,6 +207,28 @@ impl crate::services::SchedulerService for Collection {
             .map(Into::into)
     }
 
+    fn set_deck_card_order_enabled(
+        &mut self,
+        input: scheduler::SetDeckCardOrderEnabledRequest,
+    ) -> Result<anki_proto::collection::OpChanges> {
+        self.set_deck_card_order_enabled(input.deck_id.into(), input.enabled)
+            .map(Into::into)
+    }
+
+    fn move_cards_in_deck_order(
+        &mut self,
+        input: scheduler::MoveCardsInDeckOrderRequest,
+    ) -> Result<anki_proto::collection::OpChanges> {
+        let target = (input.target_card_id != 0).then_some(CardId(input.target_card_id));
+        self.move_cards_in_deck_order(
+            input.deck_id.into(),
+            &input.card_ids.into_newtype(CardId),
+            target,
+            input.insert_after,
+        )
+        .map(Into::into)
+    }
+
     fn get_scheduling_states(
         &mut self,
         input: anki_proto::cards::CardId,

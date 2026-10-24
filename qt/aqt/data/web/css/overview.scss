@@ -40,3 +40,8 @@ h3 {
 #study {
     @include button.base($primary: true);
 }
+
+#learnInOrder {
+    @include button.base;
+    margin-top: 0.5em;
+}

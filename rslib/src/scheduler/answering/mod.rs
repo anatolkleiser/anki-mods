@@ -329,6 +329,10 @@ impl Collection {
         let mut updater = self.card_state_updater(card)?;
         answer.cap_answer_secs(updater.config.inner.cap_answer_time_to_secs);
         let current_state = updater.current_card_state();
+        let previewing = matches!(
+            current_state,
+            CardState::Filtered(FilteredState::Preview(_))
+        );
         // If the states aren't equal, it's probably because some time has passed.
         // Try to fix this by setting elapsed_secs equal.
         self.set_elapsed_secs_equal(&current_state, &mut answer.current_state);
@@ -342,7 +346,10 @@ impl Collection {
         self.add_partial_revlog(revlog_partial, usn, answer)?;
 
         self.update_deck_stats_from_answer(usn, answer, &updater, original.queue)?;
-        self.maybe_bury_siblings(&original, &updater.config)?;
+        // previews don't change scheduling, so they don't bury siblings either
+        if !previewing {
+            self.maybe_bury_siblings(&original, &updater.config)?;
+        }
         let timing = updater.timing;
         let deckconfig_id = updater.original_deck.config_id();
         let mut card = updater.into_card();

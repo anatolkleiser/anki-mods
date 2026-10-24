@@ -9,14 +9,18 @@ from typing import Any
 import aqt
 import aqt.browser
 import aqt.forms
+from anki.browser import BrowserConfig
 from anki.cards import Card, CardId
-from anki.collection import Collection, Config, OpChanges
+from anki.collection import Collection, Config, OpChanges, SearchNode
 from anki.consts import *
+from anki.decks import DeckId
 from anki.notes import Note, NoteId
 from aqt import gui_hooks
 from aqt.browser.table import Columns, ItemId, SearchContext
+from aqt.browser.table.card_order import CARD_ORDER_COLUMN, CardOrderDrag
 from aqt.browser.table.model import DataModel
 from aqt.browser.table.state import CardState, ItemState, NoteState
+from aqt.card_order import card_order_index
 from aqt.qt import *
 from aqt.theme import theme_manager
 from aqt.utils import (
@@ -54,14 +58,21 @@ class Table:
         # temporarily set for selection preservation
         self._current_item: ItemId | None = None
         self._selected_items: Sequence[ItemId] = []
+        # the deck whose custom card order is shown, if any
+        self._card_order_deck_id: DeckId | None = None
+        # set when the order column was added, until it has been placed first
+        self._card_order_column_added = False
+        self._last_search = ""
 
     def set_view(self, view: QTableView) -> None:
         self._view = view
         self._setup_view()
         self._setup_headers()
+        self._card_order_drag = CardOrderDrag(self, view)
 
     def cleanup(self) -> None:
         self._save_header()
+        self._forget_card_order_in_config(self._state)
 
     # Public Methods
     ######################################################################
@@ -88,6 +99,15 @@ class Table:
 
     def is_notes_mode(self) -> bool:
         return self._state.is_notes_mode()
+
+    def card_order_deck_id(self) -> DeckId | None:
+        return self._card_order_deck_id
+
+    def is_sorted_by_card_order(self) -> bool:
+        return (
+            self._card_order_deck_id is not None
+            and self._state.sort_column == CARD_ORDER_COLUMN
+        )
 
     # Get objects
 
@@ -186,23 +206,33 @@ class Table:
     # Modify table
 
     def search(self, txt: str) -> None:
+        self._last_search = txt
         self._save_selection()
+        columns_changed = self._prepare_card_order(self._state)
         self._model.search(SearchContext(search=txt, browser=self.browser))
+        if columns_changed:
+            self._set_column_sizes()
+        self._set_sort_indicator()
         self._restore_selection(self._intersected_selection)
+        self._place_added_card_order_column()
 
     def toggle_state(self, is_notes_mode: bool, last_search: str) -> None:
         if is_notes_mode == self.is_notes_mode():
             return
         self._save_header()
         self._save_selection()
+        old_state = self._state
         self._state = self._model.toggle_state(
-            SearchContext(search=last_search, browser=self.browser)
+            SearchContext(search=last_search, browser=self.browser),
+            prepare_state=self._prepare_card_order,
         )
+        self._forget_card_order_in_config(old_state)
         self.col.set_config_bool(
             Config.Bool.BROWSER_TABLE_SHOW_NOTES_MODE,
             self.is_notes_mode(),
         )
         self._restore_header()
+        self._place_added_card_order_column()
         self._restore_selection(self._toggled_selection)
 
     # Move cursor
@@ -257,6 +287,151 @@ class Table:
             QModelIndex(),
             QItemSelectionModel.SelectionFlag.NoUpdate,
         )
+
+    # Custom card order
+
+    def set_card_order_deck(self, deck_id: DeckId | None) -> None:
+        """Show the custom card order of the deck, or no order if None. Takes
+        effect with the next search."""
+        self._card_order_deck_id = deck_id
+
+    def card_order_changed(self) -> bool:
+        """True if the rows are sorted by the custom card order, and the order
+        of the cards they show has changed, eg by undo."""
+        if not self.is_sorted_by_card_order():
+            return False
+        found = self._state.find_items(
+            self._last_search,
+            self._model.columns[CARD_ORDER_COLUMN],
+            self._state.sort_backwards,
+        )
+        shown = self._model.items()
+        found_set = set(found)
+        shown_set = set(shown)
+        return [item for item in shown if item in found_set] != [
+            item for item in found if item in shown_set
+        ]
+
+    def current_card_order_index(self) -> int | None:
+        "The order index of the current card, or of the current note's first card."
+        if self.is_notes_mode():
+            if (nid := self._model.get_note_id(self._current())) is None:
+                return None
+            search = self.col.build_search_string(
+                self._last_search, SearchNode(nid=nid)
+            )
+            order = self._model.columns[CARD_ORDER_COLUMN]
+            cards = self.col.find_cards(search, order=order)
+            return card_order_index(self.col.get_card(cards[0])) if cards else None
+        if card := self.get_current_card():
+            return card_order_index(card)
+        return None
+
+    def selected_rows(self) -> list[int]:
+        return [index.row() for index in self._selected()]
+
+    def select_rows_for_drag(self, rows: list[int]) -> None:
+        self._reset_selection()
+        self._select_rows(rows)
+        self._set_current(rows[0])
+
+    def move_rows_in_card_order(
+        self, rows: list[int], target_row: int, insert_after: bool
+    ) -> None:
+        """Move the cards of rows next to the card of target_row."""
+        card_ids = self._model.get_card_ids([self._model.index(row, 0) for row in rows])
+        target_index = self._model.index(target_row, 0)
+        if self._state.sort_backwards:
+            # on screen, before a card is after it in the order
+            insert_after = not insert_after
+        if self.is_notes_mode():
+            # keep the target note's cards together
+            nid = self._model.get_note_id(target_index)
+            if nid is None:
+                return
+            search = self.col.build_search_string(
+                self._last_search, SearchNode(nid=nid)
+            )
+            order = self._model.columns[CARD_ORDER_COLUMN]
+            target_cards = self.col.find_cards(search, order=order)
+            if not target_cards:
+                return
+            # a note's row is placed by its earliest card; only a drop below the
+            # last row can go after all of the note's cards
+            last_row = insert_after and not self._state.sort_backwards
+            target = target_cards[-1] if last_row else target_cards[0]
+        else:
+            target = CardId(self._model.get_item(target_index))
+        self.browser.move_cards_in_card_order(card_ids, target, insert_after)
+
+    def _place_added_card_order_column(self) -> None:
+        """Show a newly added order column first. It is added last, so that
+        the other columns keep their sizes and places."""
+        if not self._card_order_column_added:
+            return
+        self._card_order_column_added = False
+        if (index := self._model.active_column_index(CARD_ORDER_COLUMN)) is None:
+            return
+        hh = self._horizontal_header()
+        hh.moveSection(hh.visualIndex(index), 0)
+        label = self._state.column_label(self._model.columns[CARD_ORDER_COLUMN])
+        hh.resizeSection(
+            index,
+            max(
+                hh.minimumSectionSize(),
+                QFontMetrics(hh.font()).horizontalAdvance(label) + 30,
+            ),
+        )
+        self._scroll_to_column(index)
+
+    def _forget_card_order_in_config(self, state: ItemState) -> None:
+        """Put the sorting and columns from before the order was shown back
+        into the synced config, which other clients read, without changing the
+        state, which may still be on screen."""
+        saved_sort_key = f"{state.SORT_COLUMN_KEY}BeforeCardOrder"
+        if (saved_sort := self.col.get_config(saved_sort_key, None)) is not None:
+            if state.sort_column == CARD_ORDER_COLUMN:
+                self.col.set_config(state.SORT_COLUMN_KEY, saved_sort[0])
+                self.col.set_config(state.SORT_BACKWARDS_KEY, saved_sort[1])
+            # removing would add an undo step
+            self.col.set_config(saved_sort_key, None)
+        if CARD_ORDER_COLUMN in state.active_columns:
+            self.col.set_config(
+                BrowserConfig.active_columns_key(state.is_notes_mode()),
+                [
+                    column
+                    for column in state.active_columns
+                    if column != CARD_ORDER_COLUMN
+                ],
+            )
+
+    def _prepare_card_order(self, state: ItemState) -> bool:
+        """Sort by the order column and show it when entering a deck with a
+        custom order, and restore the sorting and hide the column when leaving
+        it. Return True if the columns changed."""
+        saved_sort_key = f"{state.SORT_COLUMN_KEY}BeforeCardOrder"
+        saved_sort = self.col.get_config(saved_sort_key, None)
+        has_column = CARD_ORDER_COLUMN in state.active_columns
+        if self._card_order_deck_id is not None:
+            if saved_sort is not None:
+                return False
+            self.col.set_config(
+                saved_sort_key, [state.sort_column, state.sort_backwards]
+            )
+            state.sort_column = CARD_ORDER_COLUMN
+            state.sort_backwards = False
+            if not has_column:
+                state.toggle_active_column(CARD_ORDER_COLUMN)
+                self._card_order_column_added = True
+            return not has_column
+        if saved_sort is not None:
+            if state.sort_column == CARD_ORDER_COLUMN:
+                state.sort_column, state.sort_backwards = saved_sort
+            # removing would add an undo step
+            self.col.set_config(saved_sort_key, None)
+        if has_column:
+            state.toggle_active_column(CARD_ORDER_COLUMN)
+        return has_column
 
     # Private methods
     ######################################################################
@@ -324,7 +499,12 @@ class Table:
         hh.setCascadingSectionResizes(False)
 
     def _save_header(self) -> None:
-        saveHeader(self._horizontal_header(), self._state.GEOMETRY_KEY_PREFIX)
+        hh = self._horizontal_header()
+        if (index := self._model.active_column_index(CARD_ORDER_COLUMN)) is not None:
+            # the order column comes and goes, so it is saved last, where it can
+            # be dropped without moving the other columns
+            hh.moveSection(hh.visualIndex(index), hh.count() - 1)
+        saveHeader(hh, self._state.GEOMETRY_KEY_PREFIX)
 
     def _restore_header(self) -> None:
         hh = self._horizontal_header()
@@ -463,6 +643,8 @@ class Table:
         m = QMenu()
         m.setToolTipsVisible(True)
         for key, column in self._model.columns.items():
+            if key == CARD_ORDER_COLUMN and self._card_order_deck_id is None:
+                continue
             a = m.addAction(self._state.column_label(column))
             assert a is not None
             a.setCheckable(True)

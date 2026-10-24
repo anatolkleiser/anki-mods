@@ -12,6 +12,7 @@ import aqt.operations
 from anki.collection import OpChanges
 from anki.scheduler import UnburyDeck
 from aqt import gui_hooks
+from aqt.card_order import learn_in_order
 from aqt.deckdescription import DeckDescriptionDialog
 from aqt.deckoptions import display_options_for_deck
 from aqt.operations import QueryOp
@@ -99,6 +100,8 @@ class Overview:
             self.mw.moveToState("review")
             if self.mw.state == "overview":
                 tooltip(tr.studying_no_cards_are_due_yet())
+        elif url == "learnInOrder":
+            learn_in_order(mw=self.mw, deck_id=self.mw.col.decks.get_current_id())
         elif url == "anki":
             print("anki menu")
         elif url == "opts":
@@ -134,6 +137,9 @@ class Overview:
 
     def _current_deck_is_filtered(self) -> int:
         return self.mw.col.decks.current()["dyn"]
+
+    def _current_deck_has_card_order(self) -> bool:
+        return self.mw.col.decks.card_order_enabled(self.mw.col.decks.get_current_id())
 
     def rebuild_current_filtered_deck(self) -> None:
         rebuild_filtered_deck(
@@ -187,7 +193,8 @@ class Overview:
             shareLink = '<a class=smallLink href="review">Reviews and Updates</a>'
         else:
             shareLink = ""
-        if self.mw.col.sched._is_finished():
+        # a deck with a custom order can be played in order even when nothing is due
+        if self.mw.col.sched._is_finished() and not self._current_deck_has_card_order():
             self._show_finished_screen()
             return
         content = OverviewContent(
@@ -239,6 +246,11 @@ class Overview:
         else:
             buried_new = buried_learning = buried_review = 0
         buried_label = tr.studying_counts_differ()
+        learn_in_order = ""
+        if self._current_deck_has_card_order():
+            learn_in_order = "<br>" + but(
+                "learnInOrder", tr.studying_learn_in_order(), id="learnInOrder"
+            )
 
         def number_row(title: str, klass: str, count: int, buried_count: int) -> str:
             buried = f"{buried_count:+}" if buried_count else ""
@@ -263,7 +275,7 @@ class Overview:
 {number_row(tr.studying_to_review(), "review-count", counts[2], buried_review)}
 </table>
 </td><td align=center>
-{but("study", tr.studying_study_now(), id="study", extra=" autofocus")}</td></tr></table>"""
+{but("study", tr.studying_study_now(), id="study", extra=" autofocus")}{learn_in_order}</td></tr></table>"""
 
     _body = """
 <center>

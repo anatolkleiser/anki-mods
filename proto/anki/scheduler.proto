@@ -39,6 +39,16 @@ service SchedulerService {
   rpc GradeNow(GradeNowRequest) returns (collection.OpChanges);
   rpc SortCards(SortCardsRequest) returns (collection.OpChangesWithCount);
   rpc SortDeck(SortDeckRequest) returns (collection.OpChangesWithCount);
+  // Turns the custom card order of a deck on or off. Turning it on gives the
+  // deck's cards that have none an order index.
+  rpc SetDeckCardOrderEnabled(SetDeckCardOrderEnabledRequest)
+      returns (collection.OpChanges);
+  // Moves cards within a deck's custom card order. The deck's existing order
+  // indices are handed out again in the new order, so gaps are kept and the
+  // indices aren't positions. Cards without an index are placed at the end.
+  // With no card ids, only does the latter.
+  rpc MoveCardsInDeckOrder(MoveCardsInDeckOrderRequest)
+      returns (collection.OpChanges);
   rpc GetSchedulingStates(cards.CardId) returns (SchedulingStates);
   rpc DescribeNextStates(SchedulingStates) returns (generic.StringList);
   rpc StateIsLeech(SchedulingState) returns (generic.Bool);
@@ -254,6 +264,19 @@ message SortCardsRequest {
   uint32 step_size = 3;
   bool randomize = 4;
   bool shift_existing = 5;
+}
+
+message SetDeckCardOrderEnabledRequest {
+  int64 deck_id = 1;
+  bool enabled = 2;
+}
+
+message MoveCardsInDeckOrderRequest {
+  int64 deck_id = 1;
+  repeated int64 card_ids = 2;
+  // The card the moved cards are placed next to.
+  int64 target_card_id = 3;
+  bool insert_after = 4;
 }
 
 message SortDeckRequest {

@@ -77,7 +77,12 @@ impl QueueBuilder {
         card: DueOrNewCard,
     ) -> Option<BuryMode> {
         let mut previous_mode = None;
-        let new_mode = self.context.bury_mode(card.original_deck_id());
+        let new_mode = if self.context.previewing {
+            // previews don't change scheduling, so siblings are all shown
+            BuryMode::default()
+        } else {
+            self.context.bury_mode(card.original_deck_id())
+        };
         self.context
             .seen_note_ids
             .entry(card.note_id())

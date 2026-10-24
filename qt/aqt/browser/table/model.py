@@ -198,6 +198,9 @@ class DataModel(QAbstractTableModel):
 
     # Get items (card or note ids depending on state)
 
+    def items(self) -> Sequence[ItemId]:
+        return self._items
+
     def get_item(self, index: QModelIndex) -> ItemId:
         return self._items[index.row()]
 
@@ -257,9 +260,17 @@ class DataModel(QAbstractTableModel):
     # Table Interface
     ######################################################################
 
-    def toggle_state(self, context: SearchContext) -> ItemState:
+    def toggle_state(
+        self,
+        context: SearchContext,
+        prepare_state: Callable[[ItemState], Any] | None = None,
+    ) -> ItemState:
+        """Switch between cards and notes mode. prepare_state may adjust the
+        columns and sorting of the new state before it is searched."""
         self.begin_reset()
         self._state = self._state.toggle_state()
+        if prepare_state:
+            prepare_state(self._state)
         try:
             self._search_inner(context)
         except Exception:

@@ -38,6 +38,9 @@ studying-replay-own-voice = Replay Own Voice
 studying-show-answer = Show Answer
 studying-space = Space
 studying-study-now = Study Now
+studying-learn-in-order = Learn in Order
+# Name of the temporary filtered deck used to play a deck's cards in their custom order.
+studying-in-order-deck-name = { $deck } (in order)
 studying-suspend = Suspend
 studying-suspend-note = Suspend Note
 studying-this-is-a-special-deck-for = This is a special deck for studying outside of the normal schedule.

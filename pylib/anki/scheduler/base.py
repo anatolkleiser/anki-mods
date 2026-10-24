@@ -269,6 +269,32 @@ class SchedulerBase(DeprecatedNamesMixin):
     def order_cards(self, did: DeckId) -> None:
         self.col._backend.sort_deck(deck_id=did, randomize=False)
 
+    # Custom card order
+    ##########################################################################
+
+    def set_deck_card_order_enabled(self, did: DeckId, enabled: bool) -> OpChanges:
+        "Turning the order on gives the deck's cards an order index."
+        return self.col._backend.set_deck_card_order_enabled(
+            deck_id=did, enabled=enabled
+        )
+
+    def move_cards_in_deck_order(
+        self,
+        did: DeckId,
+        card_ids: Sequence[CardId],
+        target: CardId | None,
+        insert_after: bool = False,
+    ) -> OpChanges:
+        """Place card_ids next to target, and give cards without an order index
+        one at the end. With no cards or target, only does the latter. Indices
+        aren't positions: they may have gaps."""
+        return self.col._backend.move_cards_in_deck_order(
+            deck_id=did,
+            card_ids=card_ids,
+            target_card_id=target or 0,
+            insert_after=insert_after,
+        )
+
     def resort_conf(self, conf: DeckConfigDict) -> None:
         for did in self.col.decks.decks_using_config(conf):
             if conf["new"]["order"] == 0:

@@ -124,6 +124,8 @@ struct Context {
     deck_map: HashMap<DeckId, Deck>,
     fsrs: bool,
     fsrs_short_term_with_steps: bool,
+    /// True for a filtered deck that doesn't reschedule cards.
+    previewing: bool,
 }
 
 impl QueueBuilder {
@@ -147,6 +149,9 @@ impl QueueBuilder {
             new_cards_ignore_review_limit,
         );
         let sort_options = sort_options(&root_deck, &config_map);
+        let previewing = root_deck
+            .filtered()
+            .is_ok_and(|filtered| !filtered.reschedule);
         let deck_map = col.storage.get_decks_map()?;
 
         let load_balancer = col
@@ -182,6 +187,7 @@ impl QueueBuilder {
                 fsrs: col.get_config_bool(BoolKey::Fsrs),
                 fsrs_short_term_with_steps: col
                     .get_config_bool(BoolKey::FsrsShortTermWithStepsEnabled),
+                previewing,
             },
         })
     }

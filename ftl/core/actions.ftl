@@ -44,6 +44,7 @@ actions-rename-with-parents = Rename with Parents
 actions-remove-tag = Remove Tag
 actions-replay-audio = Replay Audio
 actions-reposition = Reposition
+actions-reorder-cards = Reorder Cards
 actions-save = Save
 actions-search = Search
 actions-select = Select

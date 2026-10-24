@@ -28,6 +28,7 @@ use crate::cloze::strip_clozes;
 use crate::config::schema11::schema11_config_as_string;
 use crate::error::DbErrorKind;
 use crate::prelude::*;
+use crate::scheduler::card_order::order_index_from_custom_data;
 use crate::scheduler::timing::local_minutes_west_for_stamp;
 use crate::scheduler::timing::v1_creation_date;
 use crate::storage::card::data::CardData;
@@ -80,6 +81,7 @@ fn open_or_create_collection_db(path: &Path) -> Result<Connection> {
     add_fnvhash_function(&db)?;
     add_extract_original_position_function(&db)?;
     add_extract_custom_data_function(&db)?;
+    add_extract_card_order_function(&db)?;
     add_extract_fsrs_variable(&db)?;
     add_extract_fsrs_retrievability(&db)?;
     add_extract_fsrs_relative_retrievability(&db)?;
@@ -244,6 +246,28 @@ fn add_extract_original_position_function(db: &Connection) -> rusqlite::Result<(
                 Some(position) => Ok(Some(*position as i64)),
                 None => Ok(None),
             }
+        },
+    )
+}
+
+/// eg. extract_card_order(c.data) -> number | null
+/// The card's index in the custom order of its deck.
+fn add_extract_card_order_function(db: &Connection) -> rusqlite::Result<()> {
+    db.create_scalar_function(
+        "extract_card_order",
+        1,
+        FunctionFlags::SQLITE_DETERMINISTIC,
+        move |ctx| {
+            assert_eq!(ctx.len(), 1, "called with unexpected number of arguments");
+
+            let Ok(card_data) = ctx.get_raw(0).as_str() else {
+                return Ok(None);
+            };
+
+            Ok(
+                order_index_from_custom_data(&CardData::from_str(card_data).custom_data)
+                    .map(i64::from),
+            )
         },
     )
 }

@@ -1636,6 +1636,12 @@ title="{}" {}>{}</button>""".format(
         gui_hooks.operation_did_execute.append(self.on_operation_did_execute)
         gui_hooks.focus_did_change.append(self.on_focus_did_change)
 
+        from aqt import card_order
+
+        gui_hooks.state_did_change.append(card_order.on_state_did_change)
+        gui_hooks.profile_will_close.append(card_order.on_profile_will_close)
+        gui_hooks.operation_did_execute.append(card_order.on_operation_did_execute)
+
         self._activeWindowOnPlay: QWidget | None = None
 
     def onOdueInvalid(self) -> None:

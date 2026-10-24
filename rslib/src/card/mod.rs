@@ -342,6 +342,7 @@ impl Collection {
         require!(card.id.0 == 0, "card id already set");
         card.mtime = TimestampSecs::now();
         card.usn = self.usn()?;
+        self.place_new_card_in_order(card)?;
         self.add_card_undoable(card)
     }
 
@@ -382,6 +383,8 @@ impl Collection {
         let usn = self.usn()?;
         self.transact(Op::SetCardDeck, |col| {
             let mut count = 0;
+            let new_order_root = col.card_order_root(&deck)?;
+            let mut old_order_roots = HashMap::new();
             for mut card in col.all_cards_for_ids(cards, false)? {
                 if card.deck_id == deck_id {
                     continue;
@@ -389,6 +392,20 @@ impl Collection {
                 count += 1;
                 let original = card.clone();
                 steps_adjuster.adjust_remaining_steps(col, &mut card)?;
+                let old_deck_id = card.original_or_current_deck_id();
+                let old_order_root = match old_order_roots.get(&old_deck_id) {
+                    Some(root) => *root,
+                    None => {
+                        let old_deck = col.storage.get_deck(old_deck_id)?;
+                        let root = match old_deck {
+                            Some(old_deck) => col.card_order_root(&old_deck)?,
+                            None => None,
+                        };
+                        old_order_roots.insert(old_deck_id, root);
+                        root
+                    }
+                };
+                card.forget_order_index_unless_staying_in(old_order_root, new_order_root)?;
                 card.set_deck(deck_id);
                 col.update_card_inner(&mut card, original, usn)?;
             }

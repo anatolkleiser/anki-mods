@@ -29,6 +29,7 @@ pub use writer::replace_search_node;
 use crate::browser_table::Column;
 use crate::card::CardType;
 use crate::prelude::*;
+use crate::scheduler::card_order::CARD_ORDER_SQL;
 use crate::scheduler::timing::SchedTimingToday;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -93,6 +94,7 @@ impl Column {
     fn required_table(self) -> RequiredTable {
         match self {
             Column::Cards
+            | Column::CardOrder
             | Column::NoteCreation
             | Column::NoteMod
             | Column::Notetype
@@ -368,6 +370,7 @@ fn card_order_from_sort_column(column: Column, timing: SchedTimingToday) -> Cow<
         Column::Ease => format!("c.type = {} asc, c.factor asc", CardType::New as i8).into(),
         Column::Interval => "c.ivl asc".into(),
         Column::Lapses => "c.lapses asc".into(),
+        Column::CardOrder => CARD_ORDER_SQL.into(),
         Column::NoteCreation => "n.id asc, c.ord asc".into(),
         Column::NoteMod => "n.mod asc, c.ord asc".into(),
         Column::Notetype => "(select pos from sort_order where ntid = n.mid) asc".into(),
@@ -398,6 +401,7 @@ fn note_order_from_sort_column(column: Column) -> Cow<'static, str> {
         | Column::Interval
         | Column::Lapses
         | Column::OriginalPosition
+        | Column::CardOrder
         | Column::Reps => "(select pos from sort_order where nid = n.id) asc".into(),
         Column::NoteCreation => "n.id asc".into(),
         Column::NoteMod => "n.mod asc".into(),
@@ -435,6 +439,7 @@ fn prepare_sort(col: &mut Collection, column: Column, item_type: ReturnItemType)
             Column::Interval => include_str!("note_interval_order.sql"),
             Column::Lapses => include_str!("note_lapses_order.sql"),
             Column::OriginalPosition => include_str!("note_original_position_order.sql"),
+            Column::CardOrder => include_str!("note_card_order_order.sql"),
             Column::Reps => include_str!("note_reps_order.sql"),
             Column::Notetype => include_str!("notetype_order.sql"),
             _ => return Ok(()),

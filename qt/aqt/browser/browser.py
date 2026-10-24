@@ -29,9 +29,10 @@ from anki.notes import NoteId
 from anki.scheduler.base import ScheduleCardsAsNew
 from anki.tags import MARKED_TAG
 from anki.utils import is_mac
-from aqt import AnkiQt, gui_hooks
+from aqt import AnkiQt, colors, gui_hooks
 from aqt.addcards import NewAddCards
 from aqt.addcards_legacy import AddCards
+from aqt.card_order import CARD_ORDER_KEY, deck_for_search, learn_in_order
 from aqt.errors import show_exception
 from aqt.import_export.exporting import ExportDialog
 from aqt.operations.card import set_card_deck, set_card_flag
@@ -41,7 +42,9 @@ from aqt.operations.scheduling import (
     bury_cards,
     forget_cards,
     grade_now,
+    move_cards_in_deck_order,
     reposition_new_cards_dialog,
+    set_deck_card_order_enabled,
     set_due_date_dialog,
     suspend_cards,
     unbury_cards,
@@ -53,6 +56,7 @@ from aqt.operations.tag import (
     remove_tags_from_notes,
 )
 from aqt.qt import *
+from aqt.qt import sip
 from aqt.sound import av_player
 from aqt.switch import Switch
 from aqt.theme import WidgetStyle
@@ -114,6 +118,8 @@ class Browser(QMainWindow):
     col: Collection
     editor: aqt.editor.Editor | aqt.editor.NewEditor | None
     table: Table
+    # set when cards changed while the browser was in the background
+    _card_order_check_pending: bool
 
     def __init__(
         self,
@@ -185,6 +191,7 @@ class Browser(QMainWindow):
         focused = current_window() == self
         self.table.op_executed(changes, handler, focused)
         self.sidebar.op_executed(changes, handler, focused)
+        self._on_card_order_maybe_changed(changes, handler)
         if changes.note_text and isinstance(self.editor, aqt.editor.Editor):
             if handler is not self.editor:
                 # fixme: this will leave the splitter shown, but with no current
@@ -214,6 +221,10 @@ class Browser(QMainWindow):
         if current_window() == self:
             self.setUpdatesEnabled(True)
             self.table.redraw_cells()
+            if self._card_order_check_pending:
+                self._card_order_check_pending = False
+                if self.table.card_order_changed():
+                    self._search_after_card_order_change()
             self.sidebar.refresh_if_needed()
 
     def set_layout(self, mode: BrowserLayout, init: bool = False) -> None:
@@ -365,6 +376,7 @@ class Browser(QMainWindow):
         qconnect(f.action_forget.triggered, self.forget_cards)
         qconnect(f.actionToggle_Suspend.triggered, self.suspend_selected_cards)
         qconnect(f.action_toggle_bury.triggered, self.bury_selected_cards)
+        self._setup_card_order_actions()
 
         def set_flag_func(desired_flag: int) -> Callable:
             return lambda: self.set_flag_of_selected_cards(desired_flag)
@@ -529,10 +541,13 @@ class Browser(QMainWindow):
     def search(self) -> None:
         """Search triggered programmatically. Caller must have saved note first."""
 
+        self._update_card_order()
         try:
             self.table.search(self._lastSearchTxt)
         except Exception as err:
             showWarning(str(err))
+        else:
+            self._number_cards_missing_from_order()
 
     def update_history(self) -> None:
         assert self.mw.pm.profile is not None
@@ -603,7 +618,25 @@ class Browser(QMainWindow):
         switch.setToolTip(tr.browsing_toggle_showing_cards_notes())
         qconnect(self.form.action_toggle_mode.triggered, switch.toggle)
         qconnect(switch.toggled, self.on_table_state_changed)
-        self.form.gridLayout.addWidget(switch, 0, 0)
+        self._card_order_switch = order_switch = Switch(
+            12,
+            tr.browsing_card_order_off(),
+            tr.browsing_card_order(),
+            left_color=colors.FG_SUBTLE,
+            right_color=colors.STATE_REVIEW,
+        )
+        order_switch.setEnabled(False)
+        qconnect(order_switch.toggled, self.on_card_order_switch_toggled)
+        # the deck the order switch applies to
+        self._card_order_deck_id: DeckId | None = None
+        self._card_order_check_pending = False
+        # decks whose cards were numbered while the browser was open
+        self._numbered_card_order_decks: set[DeckId] = set()
+        switches = QHBoxLayout()
+        switches.setSpacing(8)
+        switches.addWidget(switch)
+        switches.addWidget(order_switch)
+        self.form.gridLayout.addLayout(switches, 0, 0)
 
     def setupEditor(self) -> None:
         QShortcut(QKeySequence("Ctrl+Shift+P"), self, self.onTogglePreview)
@@ -708,6 +741,7 @@ class Browser(QMainWindow):
         self.form.action_Info.setEnabled(self.table.has_current())
         self.form.actionPreviousCard.setEnabled(self.table.has_previous())
         self.form.actionNextCard.setEnabled(self.table.has_next())
+        self._update_card_order_actions()
 
     @ensure_editor_saved
     def on_table_state_changed(self, checked: bool) -> None:
@@ -722,6 +756,144 @@ class Browser(QMainWindow):
             show_exception(parent=self, exception=err)
         else:
             self.mw.progress.finish()
+
+    # Custom card order
+    ######################################################################
+
+    def _update_card_order(self) -> None:
+        """Offer the order switch if the search shows a single deck, and show
+        that deck's custom order if it has one."""
+        did = deck_for_search(self.col, self._lastSearchTxt)
+        enabled = did is not None and self.col.decks.card_order_enabled(did)
+        self._card_order_deck_id = did
+        switch = self._card_order_switch
+        switch.setEnabled(did is not None)
+        if switch.isChecked() != enabled:
+            switch.blockSignals(True)
+            switch.setChecked(enabled)
+            switch.blockSignals(False)
+        switch.setToolTip(
+            tr.browsing_card_order_tooltip(key="Cmd" if is_mac else "Ctrl")
+            if did is not None
+            else tr.browsing_card_order_needs_deck()
+        )
+        self.table.set_card_order_deck(did if enabled else None)
+        self._update_card_order_actions()
+
+    def _setup_card_order_actions(self) -> None:
+        "Add the card order entries to the top of the Cards menu."
+        menu = self.form.menu_Cards
+        first = menu.actions()[0]
+        separator = menu.insertSeparator(first)
+        assert separator is not None
+        self._learn_from_here_separator = separator
+        self._learn_from_here_action = action = QAction(
+            tr.browsing_learn_in_order_from_here(), self
+        )
+        qconnect(action.triggered, self.learn_in_order_from_here)
+        menu.insertAction(self._learn_from_here_separator, action)
+        self._update_card_order_actions()
+
+    def _update_card_order_actions(self) -> None:
+        "Only offered when a deck with a custom order is shown."
+        shown = self.table.card_order_deck_id() is not None
+        self._learn_from_here_action.setVisible(shown)
+        self._learn_from_here_separator.setVisible(shown)
+        self._learn_from_here_action.setEnabled(shown and self.table.has_current())
+
+    @no_arg_trigger
+    @ensure_editor_saved
+    def learn_in_order_from_here(self) -> None:
+        if (did := self.table.card_order_deck_id()) is None:
+            return
+        learn_in_order(
+            mw=self.mw, deck_id=did, from_index=self.table.current_card_order_index()
+        )
+
+    def _number_cards_missing_from_order(self) -> None:
+        """Give cards added to an ordered deck since it was numbered a place
+        at the end of the order."""
+        did = self.table.card_order_deck_id()
+        if did is None or did in self._numbered_card_order_decks:
+            return
+        self._numbered_card_order_decks.add(did)
+        search = self.col.build_search_string(
+            self._lastSearchTxt, f"-has-cd:{CARD_ORDER_KEY}"
+        )
+        if not self.col.find_cards(search):
+            return
+        move_cards_in_deck_order(
+            parent=self, deck_id=did, card_ids=[], target=CardId(0), insert_after=False
+        ).success(self._search_after_card_order_op).run_in_background(initiator=self)
+
+    @ensure_editor_saved
+    def on_card_order_switch_toggled(self, checked: bool) -> None:
+        if (did := self._card_order_deck_id) is None:
+            return
+        set_deck_card_order_enabled(parent=self, deck_id=did, enabled=checked).success(
+            self._search_after_card_order_op
+        ).failure(self._on_card_order_switch_failed).run_in_background(initiator=self)
+
+    def _on_card_order_switch_failed(self, err: Exception) -> None:
+        if not self._is_closed():
+            self._update_card_order()
+        show_exception(parent=self.mw, exception=err)
+
+    def _search_after_card_order_op(self, _changes: OpChanges) -> None:
+        if not self._is_closed():
+            self.search()
+
+    def _is_closed(self) -> bool:
+        "True once the browser was closed, eg while an operation was running."
+        return self._closeEventHasCleanedUp or sip.isdeleted(self)
+
+    def move_cards_in_card_order(
+        self, card_ids: Sequence[CardId], target: CardId, insert_after: bool
+    ) -> None:
+        "Called by the table when rows have been dragged to a new place."
+        if (did := self.table.card_order_deck_id()) is None:
+            return
+
+        def move() -> None:
+            move_cards_in_deck_order(
+                parent=self,
+                deck_id=did,
+                card_ids=card_ids,
+                target=target,
+                insert_after=insert_after,
+            ).success(self._search_after_card_order_op).run_in_background(
+                initiator=self
+            )
+
+        assert self.editor is not None
+        self.editor.call_after_note_saved(lambda: None if self._is_closed() else move())
+
+    def _on_card_order_maybe_changed(
+        self, changes: OpChanges, handler: object | None
+    ) -> None:
+        """Another window, or undo, may have changed the switch of the deck,
+        or the order of its cards."""
+        if handler is self or handler is self.editor:
+            return
+        did = self._card_order_deck_id
+        shown = self.table.card_order_deck_id()
+        switch_changed = (
+            changes.deck
+            and did is not None
+            and self.col.decks.card_order_enabled(did) != (shown is not None)
+        )
+        if changes.card and not switch_changed and current_window() != self:
+            # checking needs a search, so it waits until the browser is used
+            self._card_order_check_pending = True
+            return
+        if switch_changed or (changes.card and self.table.card_order_changed()):
+            self._search_after_card_order_change()
+
+    def _search_after_card_order_change(self) -> None:
+        assert self.editor is not None
+        self.editor.call_after_note_saved(
+            lambda: None if self._is_closed() else self.search()
+        )
 
     # Sidebar
     ######################################################################

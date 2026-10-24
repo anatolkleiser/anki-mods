@@ -63,6 +63,11 @@ impl Collection {
         }
         deck.set_modified(usn);
         let name_changed = original.name != deck.name;
+        let old_card_order_root = if name_changed {
+            self.card_order_root(&original)?
+        } else {
+            None
+        };
         if name_changed {
             // match closest parent name
             self.match_or_create_parents(deck, usn)?;
@@ -74,6 +79,7 @@ impl Collection {
             // after updating, we need to ensure all grandparents exist, which may not be
             // the case in the parent->child case
             self.create_missing_parents(&deck.name, usn)?;
+            self.forget_order_indices_if_order_changed(deck, old_card_order_root, usn)?;
         }
         Ok(())
     }

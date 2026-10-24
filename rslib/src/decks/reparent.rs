@@ -41,6 +41,7 @@ impl Collection {
                     }
                     count += 1;
                     let orig = deck.clone();
+                    let old_card_order_root = self.card_order_root(&orig)?;
 
                     // this is basically update_deck_inner(), except:
                     // - we skip the normalization in prepare_for_update()
@@ -53,6 +54,7 @@ impl Collection {
                     self.ensure_deck_name_unique(&mut deck, usn)?;
                     self.rename_child_decks(&orig, &deck.name, usn)?;
                     self.update_single_deck_undoable(&mut deck, orig)?;
+                    self.forget_order_indices_if_order_changed(&deck, old_card_order_root, usn)?;
                 }
             }
         }

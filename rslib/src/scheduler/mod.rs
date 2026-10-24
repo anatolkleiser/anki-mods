@@ -8,6 +8,7 @@ use crate::prelude::*;
 
 pub mod answering;
 pub mod bury_and_suspend;
+pub(crate) mod card_order;
 pub(crate) mod congrats;
 pub(crate) mod filtered;
 pub mod fsrs;
