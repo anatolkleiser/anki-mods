@@ -14,7 +14,9 @@ from random import randrange
 from typing import Any
 
 from anki.cards import Card
+from anki.collection import OpChanges
 from anki.decks import DeckId
+from anki.errors import NotFoundError
 from anki.hooks import runFilter
 from anki.models import NotetypeId
 from anki.notes import Note, NoteId
@@ -449,6 +451,12 @@ require("anki/ui").loaded.then(() => require("anki/NoteEditor").instances[0].too
     def reload_note(self) -> None:
         self.web.eval("reloadNote();")
 
+    def on_note_deleted(self) -> None:
+        """Forget the current note, which was removed from the collection, so
+        that neither Python nor the page request it again."""
+        self.nid = None
+        self.web.eval("noteWasDeleted();")
+
     def reload_note_if_empty(
         self, deck_id: DeckId | None = None, notetype_id: NotetypeId | None = None
     ) -> None:
@@ -568,6 +576,26 @@ class NewEditorWebView(AnkiWebView):
             QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True
         )
         gui_hooks.editor_web_view_did_init(self)
+
+    def on_operation_did_execute(
+        self, changes: OpChanges, handler: object | None
+    ) -> None:
+        if changes.note_text and self._note_was_deleted():
+            # Reported as a text change, the page would ask for the note to
+            # see whether it needs reloading, and then to reload it, and the
+            # backend would log an error for each request.
+            self.editor.on_note_deleted()
+        super().on_operation_did_execute(changes, handler)
+
+    def _note_was_deleted(self) -> bool:
+        nid = self.editor.nid
+        if nid is None:
+            return False
+        try:
+            self.editor.mw.col.get_note(nid)
+        except NotFoundError:
+            return True
+        return False
 
     def onCut(self) -> None:
         self.triggerPageAction(QWebEnginePage.WebAction.Cut)

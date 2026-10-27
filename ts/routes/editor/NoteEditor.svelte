@@ -116,6 +116,8 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     import type { HistoryEntry, NotetypeIdAndModTime, SessionOptions } from "./types";
 
     let loadController: AbortController | null = null;
+    /** Set by noteWasDeleted() until the next load, when nothing may be requested for the note */
+    let noteDeleted = false;
     /** A field a load was asked to focus, until that load completes */
     let pendingFocus: { nid: string; focusTo: number } | null = null;
     let initialLoadArgs: Partial<LoadNoteArgs> | null = null;
@@ -1375,6 +1377,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     }
 
     async function loadNote(args: Partial<LoadNoteArgs>) {
+        noteDeleted = false;
         if (args.initial) {
             initialLoadArgs = { ...args, initial: false };
         }
@@ -1419,6 +1422,19 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         await loadNote(initialLoadArgs!);
     }
 
+    /**
+     * Called by Python when the note was removed from the collection. Pending
+     * saves and loads are dropped, and the note is not requested again; the
+     * next loadNote() starts afresh.
+     */
+    function noteWasDeleted(): void {
+        noteDeleted = true;
+        loadController?.abort();
+        for (const timer of fieldSaves.values()) {
+            timer.clear();
+        }
+    }
+
     async function reloadNoteIfEmpty(deckId: bigint | null, notetypeId: bigint | null) {
         const isEmpty =
             (await noteFieldsCheck(note!)).state == NoteFieldsCheckResponse_State.EMPTY;
@@ -1444,7 +1460,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         if (mode === "add" && (changes.notetype || changes.deck)) {
             loadNote({ copyFromNote: note });
             lastAddedNote = null;
-        } else if (mode !== "add" && changes.noteText) {
+        } else if (mode !== "add" && changes.noteText && !noteDeleted) {
             // Our own field saves are reported back to us too. Reloading for them
             // would move the focus and caret, and drop any text typed since.
             if (!note || !(await noteIsUpToDate())) {
@@ -1490,6 +1506,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
             loadNote,
             reloadNote,
             reloadNoteIfEmpty,
+            noteWasDeleted,
             saveSession,
             setFields,
             setCollapsed,
