@@ -19,6 +19,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
         fixRTLKeyboardNav,
         keepFormatAfterLineBreak,
         preventBuiltinShortcuts,
+        removeEmptyListsAfterDelete,
         useFocusHandler,
     } from "./content-editable";
     import { pageTheme } from "$lib/sveltelib/theme";
@@ -52,6 +53,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     use:preventBuiltinShortcuts
     use:fixRTLKeyboardNav
     use:keepFormatAfterLineBreak
+    use:removeEmptyListsAfterDelete
     use:mirrorAction={mirrorOptions}
     use:inputHandlerAction={{}}
     on:focus

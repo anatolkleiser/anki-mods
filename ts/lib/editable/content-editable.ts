@@ -10,6 +10,7 @@ import { registerShortcut, registerUnmappedShortcut } from "@tslib/shortcuts";
 import type { Callback } from "@tslib/typing";
 
 import { execCommand, queryCommandState } from "$lib/domlib/content-editable";
+import { removeEmptyLists } from "$lib/domlib/lists";
 import type { SelectionLocation } from "$lib/domlib/location";
 import { restoreSelection, saveSelection } from "$lib/domlib/location";
 import { placeCaretAfterContent } from "$lib/domlib/place-caret";
@@ -204,6 +205,20 @@ export function keepFormatAfterLineBreak(editable: HTMLElement): { destroy(): vo
                 return;
             }
             element = last;
+        }
+    }
+
+    return { destroy: on(editable, "input", onInput) };
+}
+
+/**
+ * Deleting a nested list item leaves the lists that wrapped it behind, which
+ * then only show up as stray markup in the HTML editor.
+ */
+export function removeEmptyListsAfterDelete(editable: HTMLElement): { destroy(): void } {
+    function onInput(event: Event): void {
+        if ((event as InputEvent).inputType.startsWith("delete")) {
+            removeEmptyLists(editable);
         }
     }
 

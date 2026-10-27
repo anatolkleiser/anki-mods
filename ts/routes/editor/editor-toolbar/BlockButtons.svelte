@@ -4,6 +4,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 -->
 <script lang="ts">
     import * as tr from "@generated/ftl";
+    import { getRange, getSelection } from "@tslib/cross-browser";
     import { getListItem } from "@tslib/dom";
     import { preventDefault } from "@tslib/events";
     import { getPlatformString, registerShortcut } from "@tslib/shortcuts";
@@ -32,7 +33,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
     } from "$lib/components/icons";
     import Popover from "$lib/components/Popover.svelte";
     import WithFloating from "$lib/components/WithFloating.svelte";
-    import { execCommand } from "$lib/domlib";
+    import { execCommand, removeEmptyLists, unwrapListItemBlocks } from "$lib/domlib";
 
     import { context } from "../NoteEditor.svelte";
     import { editingInputIsRichText } from "../rich-text-input";
@@ -42,14 +43,31 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
 
     // outside of lists, Chromium indents by wrapping the paragraph in a
     // margin-only <blockquote>, and outdent unwraps it again
+    function changeIndent(command: "indent" | "outdent"): void {
+        const root = document.activeElement?.shadowRoot;
+        const selection = root && getSelection(root);
+        const range = selection && getRange(selection);
+        if (root && range) {
+            // Chromium would indent a list item that wraps its content in a
+            // <div> into a <blockquote> instead of nesting a list
+            unwrapListItemBlocks(range, root);
+            selection.removeAllRanges();
+            selection.addRange(range);
+        }
+        execCommand(command);
+        if (root) {
+            removeEmptyLists(root);
+        }
+    }
+
     const outdentKeyCombination = "Control+Shift+M";
     function outdent() {
-        execCommand("outdent");
+        changeIndent("outdent");
     }
 
     const indentKeyCombination = "Control+M";
     function indent() {
-        execCommand("indent");
+        changeIndent("indent");
     }
 
     onMount(() => {
@@ -89,7 +107,7 @@ License: GNU AGPL, version 3 or later; http://www.gnu.org/licenses/agpl.html
                 return;
             }
             preventDefault(event);
-            execCommand(command);
+            changeIndent(command);
         };
     }
 
